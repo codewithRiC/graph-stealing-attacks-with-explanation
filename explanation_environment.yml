@@ -4,9 +4,11 @@ channels:
   - pytorch
   - conda-forge
   - defaults
+  - pyg
 
 dependencies:
   - ase
+  - mkl=2022.2.1
   - cudatoolkit=11.1
   - googledrivedownloader
   - h5py
@@ -26,3 +28,8 @@ dependencies:
   - torchaudio
   - torchvision
   - tqdm
+  - pytorch-scatter
+  - pytorch-sparse
+  - pytorch-cluster
+  - pytorch-spline-conv
+  - pyg

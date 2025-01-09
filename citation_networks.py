@@ -75,7 +75,7 @@ def sample_mask(idx, l):
     """Create mask."""
     mask = np.zeros(l)
     mask[idx] = 1
-    return np.array(mask, dtype=np.bool)
+    return np.array(mask, dtype=bool)
 
 
 # for zorro cora and coraml
@@ -229,7 +229,7 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
             exp_folder = "Explanations/"+data_name_cap+"_Explanations/GNNExplainer_"+data_name_cap+"/feature_masks_node="
             print("xxxxxxxxxxxx This is GNNExplainer xxxxxxxxxxxx")
         elif exp_type == "graphlime":
-            exp_folder = "Explanations/"+data_name_cap+"_Explanations/GraphLime_"+data_name_cap+"_0.1/feature_masks_node="
+            exp_folder = f"./Saved_Explanations/GraphLime/GCN/{data_name_cap}/feature_masks_node=" # NOTE path to file, not dir
             print("xxxxxxxxxxxx This is GraphLime xxxxxxxxxxxx")
         # elif exp_type == "graphlime01":  # graphlime with rho of 0.1
         #     exp_folder = data_name_cap+"_Explanations/GraphLime_"+data_name_cap+"_0.1/feature_masks_node="
@@ -253,23 +253,23 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
                 # remove extra dimension
                 feat_exp_i = (np.asarray(feat_exp_i)).flatten()
             else:
-                feat_exp_i = torch.load(exp_folder + str(i))  # load explanations
+                feat_exp_i = torch.load(exp_folder + str(i) + ".pt")  # load explanations
 
 
             # if dataset_str == "citeseer" or dataset_str == "pubmed" or dataset_str == "cora":
             if dataset_str == "cora":
-                all_feat_exp.append(feat_exp_i)
+                all_feat_exp.append(feat_exp_i.cpu())
             elif dataset_str == "citeseer" or dataset_str == "pubmed":
                 if exp_type == "gnn-explainer":
                     all_feat_exp.append(feat_exp_i.cpu())
                 else:
-                    all_feat_exp.append(feat_exp_i)
+                    all_feat_exp.append(feat_exp_i.cpu())
             else:
                 all_feat_exp.append(feat_exp_i.cpu())
 
         # convert list of arrays to single array!
         all_feat_exp = np.stack(all_feat_exp, axis=0)
-        if exp_type == "gnn-explainer":  # remove extra dimension
+        if exp_type in ["gnn-explainer", "graphlime"]:  # remove extra dimension
             all_feat_exp = np.squeeze(all_feat_exp)
 
         # print(all_feat_exp.shape) #(2708, 1433)
@@ -280,8 +280,6 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
             exp_features = exp_features.squeeze(1)
 
         # plot_explanations(exp_features, exp_type, dataset_str, labels)
-
-
 
         # Defense. Change the explanation vector here!
         if use_defense != 0:
@@ -307,6 +305,8 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
         else:
             # concat features
             if concat_feat_with_exp:
+                print(f"{features.shape=}")
+                print(f"{exp_features.shape=}")
                 final_feature = torch.cat((features, exp_features), 1)
                 print("********************** Concat feat and exp **********************")
             else:

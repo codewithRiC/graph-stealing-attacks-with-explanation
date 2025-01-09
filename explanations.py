@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import numpy as np
 import torch
 
@@ -49,7 +52,7 @@ def arg_parse():
 
 args = arg_parse()
 
-working_directory = Path("...").resolve()
+working_directory = Path("./tmp_ds/").resolve()
 
 if args.explainer=="Grad":
     device = torch.device('cpu')
@@ -57,6 +60,7 @@ else:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
 data_set = args.dataset
+print(f"{data_set=} | {working_directory=}")
 dataset, data, results_path = load_dataset(data_set, working_directory=working_directory)
 data.to(device)
 
@@ -128,6 +132,7 @@ exp_filename = os.path.join(exp_filename, model_directory)
 exp_dir = os.path.join(exp_filename,data_set)
 print(exp_dir,"explanation")
 
+print(f"============ WILL GENERATE EXPLANATIONS FOR {num_nodes} nodes ============")
 for node in range(num_nodes): 
     computation_graph_feature_matrix, computation_graph_edge_index, mapping, hard_edge_mask, kwargs = \
         subgraph(model, node, data.x, data.edge_index)
@@ -171,14 +176,14 @@ for node in range(num_nodes):
         feature_mask = explanation[1].reshape(1,-1)
         feature_mask = torch.from_numpy(feature_mask).to(device)
 
-
-    file_path = exp_dir+"/feature_masks_node="+str(node)
-    file_path_edge = exp_dir+"/edge_masks_node="+str(node)
+    file_ext = ".pt"
+    file_path = Path(exp_dir)
+    file_name = "feature_masks_node=" + str(node) + file_ext
+    file_full_path = file_path / file_name
+    file_path_edge = exp_dir+"/edge_masks_node="+str(node) + file_ext
     if args.save_exp:
-        torch.save(feature_mask, file_path)
+        if not file_path.exists():
+            file_path.mkdir(parents=True, exist_ok=True)
+        torch.save(feature_mask, file_full_path)
+        print(f"SAVED to {file_full_path.absolute()}")
         #torch.save(edge_mask, file_path_edge)
-
-
-
-
-

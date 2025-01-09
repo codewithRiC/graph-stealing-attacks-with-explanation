@@ -20,7 +20,7 @@ from scipy.stats import entropy
 
 EOS = 1e-10
 
-device_id = 1
+device_id = 0
 if torch.cuda.is_available():
     torch.cuda.set_device(device_id)  # change this cos sometimes port 0 is full
 

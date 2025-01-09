@@ -478,10 +478,35 @@ class GINConvNet(torch.nn.Module):
 
 
 def load_model(path, model):
-    if not torch.cuda.is_available():
+    print("TEST Path: " + path)
+    saved_state_dict = torch.load(path)
+    print(f"SAVED MODEL: {saved_state_dict.keys()=}")
+    print(f"DEFINED MODEL: {model.state_dict().keys()}")
+
+    # Rename keys to match your model's layer names
+    new_state_dict = {}
+    for key, value in saved_state_dict.items():
+        print(f"{key=}")
+        # Check for conv1 and conv2 keys and rename them
+        if key == "conv1.weight":
+            new_key = "conv1.lin.weight"
+        elif key == "conv2.weight":
+            new_key = "conv2.lin.weight"
+        else:
+            new_key = key  # Keep other keys unchanged
+        print(f"{new_key=}")
+        new_state_dict[new_key] = value.T
+    
+    print(f"MODIFIED SAVED DICT: {new_state_dict.keys()}")
+
+    # print(f"{model=}")
+    # print(f"{dir(model.conv1)=}")
+    # print(f"{torch.load(path)=}")
+    if not torch.cuda.is_available():  ## NOTE Not run as long as CUDA is available
         model.load_state_dict(torch.load(path, map_location="cpu"))
     else:
-        model.load_state_dict(torch.load(path))
+        # model.load_state_dict(torch.load(path), strict=False)
+        model.load_state_dict(new_state_dict)
     model.eval()
 
 
