@@ -81,13 +81,33 @@ def sample_mask(idx, l):
 # for zorro cora and coraml
 def load_soft_mask(path_prefix, node, data_name="other_datasets"):
     if data_name == "citeseer" or data_name == "credit" or data_name == "pubmed":
-        path = path_prefix + "_r_1_node_" + str(node) + ".npz"
+        path = path_prefix + "_r_1_node_" + str(node) + ".pt"
     else:
-       path = path_prefix + "_node_" + str(node) + ".npz"
+       path = path_prefix  + str(node) + ".pt"
     save = np.load(path)
+    
+    # Print available keys for debugging
+    print(f"Keys in the file {path}: {list(save.keys())}")
+    
+    # comment this for all except zorro-soft
+    # if "archive/data.pkl" in save:
+    #     data = pkl.loads(save["archive/data.pkl"])
+    #     node_mask = data.get("node_mask")
+    #     feature_mask = data.get("feature_mask")
+    #     execution_time = data.get("execution_time", np.inf)
+    # else:
+    #     raise KeyError(f"Expected keys 'node_mask' and 'feature_mask' not found in the file. Available keys: {list(save.keys())}")
+
+    # if node_mask is None or feature_mask is None:
+    #     raise KeyError("Expected keys 'node_mask' and 'feature_mask' not found in the loaded data")
+    
+    # comment out this for all except zorro-soft
+    if "node_mask" not in save or "feature_mask" not in save:
+        raise KeyError("Expected keys 'node_mask' and 'feature_mask' not found in the file")
+
     node_mask = save["node_mask"]
     feature_mask = save["feature_mask"]
-    execution_time = save["execution_time"]
+    execution_time = save["execution_time"] if "execution_time" in save else np.inf
     if execution_time is np.inf:
         return node_mask, feature_mask
     else:
@@ -214,13 +234,15 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
     # use explanations
     if use_exp:
         if exp_type == "zorro-soft":
-            exp_folder = "Explanations/"+data_name_cap+"_Explanations/Zorro_soft_"+data_name_cap+"/gcn_2_layers_explanation"
+            # exp_folder = "Explanations/"+data_name_cap+"_Explanations/Zorro_soft_"+data_name_cap+"/gcn_2_layers_explanation"
+            exp_folder = f"./Saved_Explanations/soft_zorro/GCN/{data_name_cap}/feature_masks_node="
             print("xxxxxxxxxxxx This is zorro-soft xxxxxxxxxxxx")
         elif exp_type == "zorro-hard":
             exp_folder = "Explanations/"+data_name_cap+"_Explanations/Zorro_hard_"+data_name_cap+"/gcn_2_layers_explanation"
             print("xxxxxxxxxxxx This is zorro-hard xxxxxxxxxxxx")
         elif exp_type == "grad":
-            exp_folder = "Explanations/"+data_name_cap+"_Explanations/Grad_"+data_name_cap+"/feature_masks_node="
+            # exp_folder = "Explanations/"+data_name_cap+"_Explanations/Grad_"+data_name_cap+"/feature_masks_node="
+            exp_folder = f"./Saved_Explanations/Grad/GCN/{data_name_cap}/feature_masks_node="
             print("xxxxxxxxxxxx This is grad xxxxxxxxxxxx")
         elif exp_type == "grad-untrained":
             exp_folder = "Explanations/"+data_name_cap+"_Explanations/Grad_untrained_"+data_name_cap+"/feature_masks_node="
@@ -238,7 +260,8 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
             exp_folder = "Explanations/"+data_name_cap+"_Explanations/GradInput_untrained_"+data_name_cap+"/feature_masks_node="
             print("xxxxxxxxxxxx This is gradinput untrained xxxxxxxxxxxx")
         else:  # for gradinput
-            exp_folder = "Explanations/"+data_name_cap+"_Explanations/GradInput_"+data_name_cap+"/feature_masks_node="
+            # exp_folder = "Explanations/"+data_name_cap+"_Explanations/GradInput_"+data_name_cap+"/feature_masks_node="
+            exp_folder = f"./Saved_Explanations/GradInput/GCN/{data_name_cap}/feature_masks_node="
             print("xxxxxxxxxxxx This is gradinput xxxxxxxxxxxx")
 
         all_feat_exp = []
@@ -269,7 +292,7 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
 
         # convert list of arrays to single array!
         all_feat_exp = np.stack(all_feat_exp, axis=0)
-        if exp_type in ["gnn-explainer", "graphlime"]:  # remove extra dimension
+        if exp_type in ["gnn-explainer", "graphlime", "grad", "zorro-soft", "gradinput"]:  # remove extra dimension
             all_feat_exp = np.squeeze(all_feat_exp)
 
         # print(all_feat_exp.shape) #(2708, 1433)
@@ -311,6 +334,10 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
                 print("********************** Concat feat and exp **********************")
             else:
                 # Do element wise multiplication of features and explanations!
+                if exp_features.shape[1] != features.shape[1]:
+                    min_dim = min(exp_features.shape[1], features.shape[1])
+                    features = features[:, :min_dim]
+                    exp_features = exp_features[:, :min_dim]
                 final_feature = torch.mul(features, exp_features)
                 print("********************** Elem feat and exp **********************")
             # print(final_feature)

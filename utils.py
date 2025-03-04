@@ -21,10 +21,21 @@ def apply_non_linearity(tensor, non_linearity, i):
 def get_random_mask(features, r, nr):
     nones = torch.sum(features > 0.0).float() #number of ones
     nzeros = features.shape[0] * features.shape[1] - nones #number of zeros
-    pzeros = nones / nzeros / r * nr #probability of zeros
+    # pzeros = nones / nzeros / r * nr #probability of zeros
+    pzeros = (nones / nzeros / r * nr).clamp(max=1.0)
     probs = torch.zeros(features.shape).cuda()
     probs[features == 0.0] = pzeros #probability of zero
-    probs[features > 0.0] = 1 / r #probability of ones #0.05. It is higher to select more 1 than more 0!
+    # probs[features > 0.0] = 1 / r #probability of ones #0.05. It is higher to select more 1 than more 0!
+    probs[features > 0.0] = torch.tensor(1 / r, device=features.device).clamp(max=1.0)
+    
+    # Debugging prints
+    print(f"probs shape: {probs.shape}")
+    print(f"probs min: {probs.min().item()}, probs max: {probs.max().item()}")
+    
+    # Ensure that probs contains valid values
+    if probs.min().item() < 0 or probs.max().item() > 1:
+        raise ValueError(f"Invalid values in probs tensor: min {probs.min().item()}, max {probs.max().item()}")
+    
     mask = torch.bernoulli(probs)
     return mask
 

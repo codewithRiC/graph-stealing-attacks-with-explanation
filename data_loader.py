@@ -1,5 +1,6 @@
 import warnings
 import torch
+import os
 import sys
 from collections import namedtuple
 
@@ -17,6 +18,7 @@ from torch_geometric.data import Data
 from read_bitcoin import *
 from model import GCN_PyG
 from defenses import split_explanation
+from explanations_utils import load_dataset
 # from read_chameleon import *
 from read_credit import *
 
@@ -85,6 +87,66 @@ def load_ogb_data(dataset_str, use_exp=False, concat_feat_with_exp=False):
 
 
 
+# # For private data load
+# # def load_private_dataset(dataset_dir):
+# #     """
+# #     Loads node-wise private structures from .pt files into a dictionary.
+
+# #     Args:
+# #         dataset_dir (str): Directory containing the .pt files for nodes.
+
+# #     Returns:
+# #         Data: A PyTorch Geometric Data object representing the privatized graph.
+# #     """
+# #     if not os.path.exists(dataset_dir):
+# #         raise FileNotFoundError(f"Dataset directory {dataset_dir} not found.")
+
+# #     # Initialize adjacency list and edge attributes
+# #     edge_index = []
+# #     edge_attr = []
+
+# #     for file in os.listdir(dataset_dir):
+# #         if file.endswith(".pt"):
+# #             node_id = int(file.split('_')[1].split('.')[0])
+# #             edges = torch.load(os.path.join(dataset_dir, file))
+
+# #             # Append edges (adjust the node ID for source node)
+# #             edge_index.append(torch.stack([torch.full_like(edges[1], node_id), edges[1]]))
+
+# #     # Combine all edges into a single tensor
+# #     edge_index = torch.cat(edge_index, dim=1)
+
+# #     # Create a placeholder feature matrix and labels
+# #     num_nodes = edge_index.max().item() + 1
+# #     x = torch.rand((num_nodes, 16))  # Random features for demonstration (replace as needed)
+# #     y = torch.randint(0, 7, (num_nodes,))  # Random labels (replace as needed)
+
+# #     return Data(x=x, edge_index=edge_index, y=y)
+
+# def load_private_dataset(dataset_dir):
+#     """
+#     Loads node-wise private structures from .pt files into a dictionary.
+
+#     Args:
+#         dataset_dir (str): Directory containing the .pt files for nodes.
+
+#     Returns:
+#         dict: A dictionary where keys are node indices, and values are edge tensors.
+#     """
+#     private_data = {}
+#     # Ensure the directory exists
+#     if not os.path.exists(dataset_dir):
+#         raise FileNotFoundError(f"The directory {dataset_dir} does not exist.")
+
+#     for file in os.listdir(dataset_dir):
+#         if file.endswith(".pt"):
+#             # Extract node ID from the file name (e.g., node_0.pt)
+#             try:
+#                 node_id = int(file.split('_')[1].split('.')[0])  # Extract node ID
+#                 private_data[node_id] = torch.load(os.path.join(dataset_dir, file))
+#             except Exception as e:
+#                 print(f"Error loading file {file}: {e}")
+#     return private_data
 
 
 def load_dataset_text(file_name):
@@ -993,7 +1055,40 @@ def load_data(args):
                             num_exp_in_each_split=args.num_exp_in_each_split,
                             get_predicted_labels=args.get_predicted_labels, path="./saved_models/GCN/Cora_ml_.pth.tar",
                             released_model=released_model)
+        
+    # elif dataset_str == "coraprivate":
+    #     # Load the private Cora dataset
+    #     private_data = load_dataset("CoraPrivate")
+        
+    #     # Extract features, labels, and adjacency information
+    #     features = private_data['features']
+    #     labels = private_data['labels']
+    #     original_adj = private_data['adj']
+        
+    #     # Determine the number of features and classes
+    #     nfeats = features.shape[1]
+    #     nclasses = torch.max(labels).item() + 1
 
+    #     # Create train, val, test masks (customize this part as needed)
+    #     num_nodes = features.shape[0]
+    #     train_mask = torch.zeros(num_nodes, dtype=torch.bool)
+    #     val_mask = torch.zeros(num_nodes, dtype=torch.bool)
+    #     test_mask = torch.zeros(num_nodes, dtype=torch.bool)
+    #     train_mask[:int(0.8 * num_nodes)] = True
+    #     val_mask[int(0.8 * num_nodes):int(0.9 * num_nodes)] = True
+    #     test_mask[int(0.9 * num_nodes):] = True
+
+    #     # Define the model
+    #     released_model = GCN_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
+    #                             num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,
+    #                             sparse=args.sparse)
+
+    #     # Save the model
+    #     model_path = "./saved_models/GCN/CoraPrivate_.pth.tar"
+    #     torch.save(released_model.state_dict(), model_path)
+    #     print(f"Model saved to: {model_path}")
+
+    #     return features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, released_model
     else: #cora, citeseer, pubMed
         nfeats = None
         nclasses = None
@@ -1011,7 +1106,32 @@ def load_data(args):
             nfeats = 500
             nclasses = 3
             path = "./saved_models/GCN/Pubmedgcn_2_layers.pt" #"./saved_models/GCN/PubMed_.pth.tar"
+        elif dataset_str == "coraprivate":
+            nfeats = 1433
+            nclasses = 7
+            #Define the model
+            released_model = GCN_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
+                                    num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,
+                                    sparse=args.sparse)
 
+            # Save the model
+            model_path = "./saved_models/GCN/CoraPrivate_.pth.tar"
+            torch.save(released_model.state_dict(), model_path)
+            print(f"Model saved to: {model_path}")
+            # path = "./saved_models/GCN/CoraPrivate_.pth.tar"
+            
+            # Define the directory and path
+            directory = "./saved_models/GCN/"
+            path = os.path.join(directory, "CoraPrivate_.pth.tar")
+
+            # Check if the file exists
+            if not os.path.exists(path):
+                # Create an empty file if it doesn't exist
+                with open(path, "w") as f:
+                    pass  # Create an empty file
+                print(f"Created empty file: {path}")
+            else:
+                print(f"File already exists: {path}")
 
         released_model = GCN_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
                                    num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,

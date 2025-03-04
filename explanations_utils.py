@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn.functional as F
 from torch.nn import Sequential, Linear, ReLU
@@ -25,6 +26,54 @@ def load_dataset(data_set, working_directory=None):
         dataset = Planetoid(root=working_directory.joinpath('tmp/Cora'), name='Cora')
         data = dataset[0]
         results_path = "cora"
+        
+    # if data_set == "CoraPrivate":
+    #     dataset = Planetoid(root=working_directory.joinpath('tmp/private_dataset/private_dataset1'), name='')
+    #     data = dataset[0]
+    #     results_path = "coraprivate"    
+        
+    elif data_set == "CoraPrivate":
+        # Path to the private dataset folder
+        private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")
+        
+        # Load the .pt file
+        graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
+        
+        # Extract node features, labels, and masks
+        node_features = graph_data["node_features"]
+        node_labels = graph_data["node_labels"]
+        train_mask = graph_data["train_mask"].squeeze()
+        val_mask = graph_data["val_mask"].squeeze()
+        test_mask = graph_data["test_mask"].squeeze()
+        
+        # Ensure node_labels is a 1D tensor
+        if node_labels.dim() > 1:
+            node_labels = node_labels.argmax(dim=1)  # Convert one-hot to class indices
+          
+        # Create a dummy edge_index if not provided
+        num_nodes = node_features.size(0)
+        edge_index = torch.empty((2, 0), dtype=torch.long)  # Empty edge_index
+           
+        # Create a PyG Data object
+        data = Data(
+            x=node_features,
+            edge_index=edge_index,  
+            y=node_labels,
+            train_mask=train_mask,
+            val_mask=val_mask,
+            test_mask=test_mask
+        )
+      
+        
+        # Create a Dataset namedtuple
+        from collections import namedtuple
+        Dataset = namedtuple("Dataset", "num_node_features num_classes")
+        dataset = Dataset(data.x.shape[1], torch.max(data.y).item() + 1)
+     
+        
+        results_path = "coraprivate"
+        
+        
     elif data_set == "CiteSeer":
         dataset = Planetoid(root=working_directory.joinpath('tmp/CiteSeer'), name='CiteSeer')
         data = dataset[0]
@@ -156,6 +205,22 @@ def load_dataset(data_set, working_directory=None):
 
 import numpy as np
 import scipy.sparse as sp
+
+# Feteches private edges for a given node from private dataset
+def get_private_edges(node_id, private_data):
+    """
+    Fetches private edges for a given node from the privatized dataset.
+
+    Args:
+        node_id (int): Node ID.
+        private_data (dict): Node-wise private data dictionary.
+
+    Returns:
+        Tensor: Edges connected to the node.
+    """
+    if node_id not in private_data:
+        raise KeyError(f"Node {node_id} not found in private dataset.")
+    return private_data[node_id]
 
 def load_dataset_text(file_name):
     """Load a graph from a Numpy binary file.
@@ -290,6 +355,10 @@ class GCNNet(torch.nn.Module):
         self.conv2 = GCNConv(16, dataset.num_classes)
 
     def forward(self, x, edge_index):
+        if edge_index.dim() == 1:
+            edge_index = edge_index.unsqueeze(0)
+        elif edge_index.dim() == 2 and edge_index.size(0) == 1:
+            edge_index = edge_index.squeeze(0)
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
@@ -304,6 +373,10 @@ class GCNNet_bitcoin(torch.nn.Module):
         self.conv2 = GCNConv(16, dataset.num_classes)
 
     def forward(self, x, edge_index,edge_attr):
+        if edge_index.dim() == 1:
+            edge_index = edge_index.unsqueeze(0)
+        elif edge_index.dim() == 2 and edge_index.size(0) == 1:
+            edge_index = edge_index.squeeze(0)
         x = self.conv1(x, edge_index,edge_attr)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
@@ -476,6 +549,7 @@ class GINConvNet(torch.nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x, dim=-1)
 
+# For Cora
 
 def load_model(path, model):
     print("TEST Path: " + path)
@@ -483,19 +557,54 @@ def load_model(path, model):
     print(f"SAVED MODEL: {saved_state_dict.keys()=}")
     print(f"DEFINED MODEL: {model.state_dict().keys()}")
 
-    # Rename keys to match your model's layer names
+    # # Rename keys to match your model's layer names
     new_state_dict = {}
     for key, value in saved_state_dict.items():
         print(f"{key=}")
         # Check for conv1 and conv2 keys and rename them
         if key == "conv1.weight":
             new_key = "conv1.lin.weight"
+            new_value = value.T
         elif key == "conv2.weight":
             new_key = "conv2.lin.weight"
+            new_value = value.T
+        elif key == "conv1.lin.weight":
+            new_key = "conv1.lin.weight"
+            new_value = value
+            if new_value.shape != model.conv1.lin.weight.shape:
+                new_value = new_value[:, :model.conv1.lin.weight.shape[1]]  
         else:
             new_key = key  # Keep other keys unchanged
+            new_value = value
         print(f"{new_key=}")
-        new_state_dict[new_key] = value.T
+        new_state_dict[new_key] = new_value
+        
+        print(f"{new_state_dict.keys()=}")
+    for key, value in new_state_dict.items():
+        print(f"{key}: {value.shape}")
+    
+    
+    # new_state_dict = {}
+    # for key, value in saved_state_dict.items():
+    #     print(f"{key=}")
+    #     # Check for conv1 and conv2 keys and rename them
+    #     if key == "conv1.lin.weight":
+    #         new_key = "conv1.lin.weight"
+    #         new_value = value
+    #         print(f"{new_value.shape=}")
+    #         if new_value.shape != model.conv1.lin.weight.shape:
+    #             new_value = new_value[:, :model.conv1.lin.weight.shape[1]]
+    #     elif key == "conv2.weight":
+    #         new_key = "conv2.lin.weight"
+    #         new_value = value
+    #     else:
+    #         new_key = key  # Keep other keys unchanged
+    #         new_value = value
+    #     print(f"{new_key=}")
+    #     new_state_dict[new_key] = new_value
+    #     print(f"{new_state_dict.keys()=}")
+    # for key, value in new_state_dict.items():
+    #     print(f"{key}: {value.shape}")
     
     print(f"MODIFIED SAVED DICT: {new_state_dict.keys()}")
 
@@ -503,12 +612,17 @@ def load_model(path, model):
     # print(f"{dir(model.conv1)=}")
     # print(f"{torch.load(path)=}")
     if not torch.cuda.is_available():  ## NOTE Not run as long as CUDA is available
-        model.load_state_dict(torch.load(path, map_location="cpu"))
+        # model.load_state_dict(torch.load(path, map_location="cpu"))
+        model.load_state_dict(new_state_dict, map_location="cpu")
     else:
         # model.load_state_dict(torch.load(path), strict=False)
         model.load_state_dict(new_state_dict)
     model.eval()
+   
 
+
+def save_model(model, path):
+    torch.save(model.state_dict(), path)
 
 def train_model(model, data, epochs=200, lr=0.01, weight_decay=5e-4, clip=None, loss_function="nll_loss",
                 epoch_save_path=None, no_output=False):
@@ -545,8 +659,6 @@ def train_model(model, data, epochs=200, lr=0.01, weight_decay=5e-4, clip=None, 
     return accuracies
 
 
-def save_model(model, path):
-    torch.save(model.state_dict(), path)
 
 
 def retrieve_accuracy(model, data, test_mask=None, value=False):

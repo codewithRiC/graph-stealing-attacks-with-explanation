@@ -156,14 +156,16 @@ total time 501.8652458667755127
 
 ## Code args
 Parameters for running the code are enclosed in {}. The take the following values:
-- dataset-name ==> ['cora', 'cora_ml', 'bitcoin', 'citeseer', 'credit', 'pubmed']
+- dataset-name ==> ['Cora', 'Cora_ml', 'Bitcoin', 'Citeseer', 'credit', 'Pubmed', 'CoraPrivate']
 - explainer ==> ['grad', 'gradinput', 'zorro-soft', 'zorro-hard', 'graphlime', 'gnn-explainer']
 - eps ==> [0.0001, 0.001, 0.01, 0.1, 0.2, 0.4, 0.6, 0.8, 1]
 
+-model_dict = {"GCN":GCNNet,"GAT":GATNet,"GIN":GINConvNet,"APPNP":APPNP2Net}
+-explainer_dict ={"Grad":grad_node_explanation,"GradInput":gradinput_node_explanation,"GraphLime":GLIME,"GNNExplainer":GNNExplainer, hard_zorro, soft_zorro}
 
 ## Generating Explanations
 ```bash
-python3 explanations.py --model gcn --dataset {dataset-name} --explainer {explainer} --save_exp 
+python3 explanations.py --model GCN --dataset {dataset-name} --explainer {explainer} --save_exp 
 ```
 
 
@@ -178,6 +180,7 @@ python3 main.py -model end2end -dataset {dataset-name} -explanation_method {expl
 ```bash
 python3 main.py -model end2end -dataset {dataset-name} -explanation_method {explainer} -ntrials 10 -attack_type gsef_mult
 ```
+
 
 ### Running GSEF
 ```bash
@@ -198,7 +201,7 @@ python3 main.py -model pairwise_sim -dataset {dataset-name} -explanation_method 
 
 ### Running SLAPS
 ```bash
-python3 main.py -model end2end -dataset {dataset-name} -ntrials 10 -attack_type slaps
+
 ```
 
 ### Running FeatureSim

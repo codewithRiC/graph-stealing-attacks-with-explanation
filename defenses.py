@@ -368,42 +368,80 @@ def randomized_response(x, eps):
 	return all_x
 
 
+# def explanation_intersection(original, perturbed):
+# 	# count the numbers of 1's that both the original and perturb has.
+# 	# Divide by total 1 in the original
+# 	# add each together and divide by the len(original)
+# 	# Multiply by 100 to get percentage
+# 	original_count_all_tensor = torch.unique(original, sorted=True, return_counts=True)
+# 	original_count_1_all_tensor = original_count_all_tensor[1][1].item()
+# 	# print("original_count of 1", original_count_1_all_tensor)
+
+# 	each_count_1 = []
+
+# 	for i in range(len(original)):
+# 		intersection_count = 0
+# 		# original_count = torch.unique(original[i], sorted=True, return_counts=True)
+# 		# original_count_1 = original_count[1][1].item()
+# 		# # print("original_count_1", original_count_1)
+# 		original_count_1 = 0
+
+# 		# check if each explanation feature is the same
+# 		for j in range(len(original[i])):
+# 			if original[i][j] == 1:
+# 				original_count_1 += 1
+
+# 			if (original[i][j] == perturbed[i][j]) and original[i][j] == 1:
+# 				# print("original[i][j]", original[i][j], "perturbed[i][j]", perturbed[i][j])
+# 				# print(j)
+# 				intersection_count += 1
+
+# 		# print("Count",i, intersection_count)
+# 		average_count_1 = intersection_count / original_count_1
+# 		each_count_1.append(average_count_1)
+
+# 	final_count = (sum(each_count_1) / len(each_count_1))
+# 	percentage_count = final_count * 100
+# 	print("percentage_count", percentage_count)
+# 	return percentage_count
+
 def explanation_intersection(original, perturbed):
-	# count the numbers of 1's that both the original and perturb has.
-	# Divide by total 1 in the original
-	# add each together and divide by the len(original)
-	# Multiply by 100 to get percentage
-	original_count_all_tensor = torch.unique(original, sorted=True, return_counts=True)
-	original_count_1_all_tensor = original_count_all_tensor[1][1].item()
-	# print("original_count of 1", original_count_1_all_tensor)
+    # count the numbers of 1's that both the original and perturb has.
+    # Divide by total 1 in the original
+    # add each together and divide by the len(original)
+    # Multiply by 100 to get percentage
+    original_count_all_tensor = torch.unique(original, sorted=True, return_counts=True)
+    
+    if original_count_all_tensor[1].size(0) > 1:
+        original_count_1_all_tensor = original_count_all_tensor[1][1].item()
+    else:
+        original_count_1_all_tensor = 0
+    # print("original_count of 1", original_count_1_all_tensor)
 
-	each_count_1 = []
+    each_count_1 = []
 
-	for i in range(len(original)):
-		intersection_count = 0
-		# original_count = torch.unique(original[i], sorted=True, return_counts=True)
-		# original_count_1 = original_count[1][1].item()
-		# # print("original_count_1", original_count_1)
-		original_count_1 = 0
+    for i in range(len(original)):
+        intersection_count = 0
+        original_count_1 = 0
 
-		# check if each explanation feature is the same
-		for j in range(len(original[i])):
-			if original[i][j] == 1:
-				original_count_1 += 1
+        # check if each explanation feature is the same
+        for j in range(len(original[i])):
+            if original[i][j] == 1:
+                original_count_1 += 1
 
-			if (original[i][j] == perturbed[i][j]) and original[i][j] == 1:
-				# print("original[i][j]", original[i][j], "perturbed[i][j]", perturbed[i][j])
-				# print(j)
-				intersection_count += 1
+            if (original[i][j] == perturbed[i][j]) and original[i][j] == 1:
+                intersection_count += 1
 
-		# print("Count",i, intersection_count)
-		average_count_1 = intersection_count / original_count_1
-		each_count_1.append(average_count_1)
+        if original_count_1 > 0:
+            average_count_1 = intersection_count / original_count_1
+        else:
+            average_count_1 = 0
+        each_count_1.append(average_count_1)
 
-	final_count = (sum(each_count_1) / len(each_count_1))
-	percentage_count = final_count * 100
-	print("percentage_count", percentage_count)
-	return percentage_count
+    final_count = (sum(each_count_1) / len(each_count_1))
+    percentage_count = final_count * 100
+    print("percentage_count", percentage_count)
+    return percentage_count
 
 
 def vanilla_ldp_epsilon(p):

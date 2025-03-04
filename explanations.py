@@ -24,7 +24,7 @@ from torch_geometric.nn import APPNP
 from torch_geometric.nn import GINConv, global_add_pool
 from torch.nn import Sequential, Linear, ReLU
 import torch.nn as nn
-from explanations_utils import load_dataset
+from explanations_utils import load_dataset,load_model,train_model
 from explanations_utils import *
 from grad_explainer import *
 import collections
@@ -52,7 +52,8 @@ def arg_parse():
 
 args = arg_parse()
 
-working_directory = Path("./tmp_ds/").resolve()
+#working_directory = Path("./tmp_ds/private_dataset/private_dataset1").resolve()
+working_directory = Path("./tmp_ds").resolve()
 
 if args.explainer=="Grad":
     device = torch.device('cpu')
@@ -63,6 +64,7 @@ data_set = args.dataset
 print(f"{data_set=} | {working_directory=}")
 dataset, data, results_path = load_dataset(data_set, working_directory=working_directory)
 data.to(device)
+print(f"{dataset=} | {results_path=}")
 
 model_dict = {"GCN":GCNNet,"GAT":GATNet,"GIN":GINConvNet,"APPNP":APPNP2Net}
 explainer_dict ={"Grad":grad_node_explanation,"GradInput":gradinput_node_explanation,"GraphLime":GLIME,"GNNExplainer":GNNExplainer}
@@ -72,6 +74,7 @@ explainer_dict ={"Grad":grad_node_explanation,"GradInput":gradinput_node_explana
 model = model_dict[args.model](dataset)
 model.to(device)
 
+
 ### path to the saved model 
 save_dir = 'saved_models'
 model_directory = args.model
@@ -79,9 +82,15 @@ filename = os.path.join(save_dir, args.model)
 saved_model = os.path.join(filename,args.dataset)
 saved_model_dir = saved_model+"_.pth.tar"
 
+# Check if the file exists
+if not os.path.exists(saved_model_dir):
+    print(f"Model file not found: {saved_model_dir}. Training and saving the model.")
+    train_model(model, data)
+    torch.save(model.state_dict(), saved_model_dir)
+else:
+    ### load the trained GNN model
+    load_model(saved_model_dir, model)
 
-### load the trained GNN model
-load_model(saved_model_dir,model)
 
 
 
@@ -136,12 +145,19 @@ print(f"============ WILL GENERATE EXPLANATIONS FOR {num_nodes} nodes ==========
 for node in range(num_nodes): 
     computation_graph_feature_matrix, computation_graph_edge_index, mapping, hard_edge_mask, kwargs = \
         subgraph(model, node, data.x, data.edge_index)
-    computation_graph_edge_index.to(device)
-    computation_graph_feature_matrix.to(device)
+    # computation_graph_edge_index.to(device)
+    # computation_graph_feature_matrix.to(device)
+
+    # computation_data = Data(x=computation_graph_feature_matrix,
+    #                         edge_index=computation_graph_edge_index).to(device)
+    # computation_data.to(device)
+    
+    computation_graph_edge_index = computation_graph_edge_index.to(device)
+    computation_graph_feature_matrix = computation_graph_feature_matrix.to(device)
 
     computation_data = Data(x=computation_graph_feature_matrix,
                             edge_index=computation_graph_edge_index).to(device)
-    computation_data.to(device)
+    computation_data = computation_data.to(device)
     if args.explainer=="Grad":
         #node = torch.tensor(node).to(device)
         feature_mask, node_mask = grad_node_explanation(model,mapping,computation_graph_feature_matrix,computation_graph_edge_index)
@@ -158,8 +174,18 @@ for node in range(num_nodes):
         
     if args.explainer=="GNNExplainer":
         gnn_explainer = GNNExplainer(model,log=False)
-        feature_mask,edge_mask = gnn_explainer.explain_node(node_idx=mapping,x=computation_graph_feature_matrix,edge_index=computation_graph_edge_index)
-        edge_mask  =torch.nn.Parameter(edge_mask)
+        # feature_mask,edge_mask = gnn_explainer.explain_node(node_idx=mapping,x=computation_graph_feature_matrix,edge_index=computation_graph_edge_index)
+        # edge_mask  =torch.nn.Parameter(edge_mask)
+        # feature_mask = torch.from_numpy(feature_mask).reshape(1,-1)
+        
+        # Ensure edge_index is 2-dimensional
+        if computation_graph_edge_index.dim() == 1:
+            computation_graph_edge_index = computation_graph_edge_index.unsqueeze(0)
+        # Ensure edge_weight is handled correctly
+        if 'edge_weight' in kwargs and kwargs['edge_weight'].dim() == 2:
+            kwargs['edge_weight'] = kwargs['edge_weight'].squeeze(1)    
+        feature_mask, edge_mask = gnn_explainer.explain_node(node_idx=mapping, x=computation_graph_feature_matrix, edge_index=computation_graph_edge_index)
+        edge_mask = torch.nn.Parameter(edge_mask)
         feature_mask = feature_mask.reshape(1, -1)
         
 

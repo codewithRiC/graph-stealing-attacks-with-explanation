@@ -2,6 +2,7 @@
 import argparse
 import copy
 import numpy as np
+import os
 import torch
 import torch.nn.functional as F
 
@@ -17,6 +18,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from fidelity import fidelity
 from defenses import explanation_intersection
 from scipy.stats import entropy
+# from data_loader import load_private_dataset
 
 EOS = 1e-10
 
@@ -82,6 +84,32 @@ class Experiment:
         model.eval()
         return model
 
+    # #Load the private dataset
+    # def load_private_dataset(dataset_dir):
+    #     """
+    #     Loads node-wise private structures from .pt files into a dictionary.
+
+    #     Args:
+    #         dataset_dir (str): Directory containing the .pt files for nodes.
+
+    #     Returns:
+    #         dict: A dictionary where keys are node indices, and values are edge tensors.
+    #     """
+    #     private_data = {}
+    #     # Ensure the directory exists
+    #     if not os.path.exists(dataset_dir):
+    #         raise FileNotFoundError(f"The directory {dataset_dir} does not exist.")
+
+    #     for file in os.listdir(dataset_dir):
+    #         if file.endswith(".pt"):
+    #             # Extract node ID from the file name (e.g., node_0.pt)
+    #             try:
+    #                 node_id = int(file.split('_')[1].split('.')[0])  # Extract node ID
+    #                 private_data[node_id] = torch.load(os.path.join(dataset_dir, file))
+    #             except Exception as e:
+    #                 print(f"Error loading file {file}: {e}")
+    #     return private_data
+
 
 
     # For getting classification loss for GCN_C
@@ -127,26 +155,40 @@ class Experiment:
 
     # for getting the loss of GCN_DAE after adding noise!
     def get_loss_masked_features(self, model, features, mask, ogb, noise, loss_t):
-        if ogb:  # if the feature values are not binary, then u can set ogb to true!
-            if noise == 'mask':
-                masked_features = features * (1 - mask)
-            elif noise == "normal":
-                noise = torch.normal(0.0, 1.0, size=features.shape).cuda()
-                masked_features = features + (noise * mask)
+        print(f"Shape of features: {features.shape}")
+        print(f"Shape of mask: {mask.shape}")
 
-            logits, Adj = model(features, masked_features)
+        # Ensure the dimensions match
+        if features.shape[1] < mask.shape[1]:
+            padding = mask.shape[1] - features.shape[1]
+            features_padded = torch.nn.functional.pad(features, (0, padding))
+            print(f"Padded shape of features: {features_padded.shape}")
+        else:
+            features_padded = features
+
+        masked_features = features_padded * (1 - mask)
+
+        if ogb:  # if the feature values are not binary, then you can set ogb to true!
+            if noise == 'mask':
+                masked_features = features_padded * (1 - mask)
+            elif noise == "normal":
+                noise = torch.normal(0.0, 1.0, size=features_padded.shape).cuda()
+                masked_features = features_padded + (noise * mask)
+
+            logits, Adj = model(features_padded, masked_features)
             indices = mask > 0
 
             if loss_t == 'bce':
-                features_sign = torch.sign(features).cuda() * 0.5 + 0.5 #changes it to 0 and 1
+                features_sign = torch.sign(features_padded).cuda() * 0.5 + 0.5  # changes it to 0 and 1
                 loss = F.binary_cross_entropy_with_logits(logits[indices], features_sign[indices], reduction='mean')
             elif loss_t == 'mse':
-                loss = F.mse_loss(logits[indices], features[indices], reduction='mean')
+                loss = F.mse_loss(logits[indices], features_padded[indices], reduction='mean')
         else:
-            masked_features = features * (1 - mask)
-            logits, Adj = model(features, masked_features)
+            masked_features = features_padded * (1 - mask)
+            logits, Adj = model(features_padded, masked_features)
             indices = mask > 0
-            loss = F.binary_cross_entropy_with_logits(logits[indices], features[indices], reduction='mean')
+            loss = F.binary_cross_entropy_with_logits(logits[indices], features_padded[indices], reduction='mean')
+
         return loss, Adj
 
 
@@ -297,8 +339,9 @@ class Experiment:
     def pairwise_similarity(self, args):
         # For computing all pair feature similarity
         print("******* Using Pairwaise similarity*******")
-        features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, \
-        saved_model_path = load_data(args)
+        # features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, \
+        # saved_model_path = load_data(args)
+        features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, saved_model_path, *extra = load_data(args)
 
         similarity_matrix = cosine_similarity(features)
 
@@ -686,25 +729,39 @@ class Experiment:
 
         else:
             # get the real and predicted edges for the idx of interest!
-            real_edge = ori_adj[idx, :][:, idx].reshape(-1)
+            
+            # real_edge = ori_adj[idx, :][:, idx].reshape(-1)  # used for the end-2-end
+            # # real_edge = (np.asarray(real_edge)).flatten()
+            real_edge = ori_adj[idx].reshape(-1) if ori_adj.ndim == 1 else ori_adj[idx, :][:, idx].reshape(-1)  #used for the pairwise
             real_edge = (np.asarray(real_edge)).flatten()
-
             pred_edge = inference_adj[idx, :][:, idx].reshape(
                 -1)
 
             if save_testset == 1: #save the test set for evaluation
                 # save test index
                 index = np.where(real_edge == 0)[0]
-                index_delete = np.random.choice(index, size=int(len(real_edge) - 2 * np.sum(real_edge)), replace=False)
+                max_delete = len(real_edge) - 1  # Ensure at least one element remains
+                index_delete = np.random.choice(index, size=min(int(len(real_edge) - 2 * np.sum(real_edge)), max_delete), replace=False)
                 save_list(index_delete, "./Dataset/testset/" + dataset + "/index_delete_" + dataset + "_trial_" + str(trial) + "_.idx")
             else:
                 # load
                 index_delete = []
                 index_delete = read_list(index_delete, "./Dataset/testset/" + dataset + "/index_delete_" + dataset + "_trial_" +str(trial)+"_.idx")
                 index_delete = np.array(index_delete)
+                # Ensure index_delete contains valid indices
+                index_delete = index_delete[index_delete < len(real_edge)]
 
             real_edge = np.delete(real_edge, index_delete)
             pred_edge = np.delete(pred_edge, index_delete)
+
+            # Ensure real_edge and pred_edge have the same length
+            min_length = min(len(real_edge), len(pred_edge))
+            real_edge = real_edge[:min_length]
+            pred_edge = pred_edge[:min_length]
+
+            # Ensure real_edge and pred_edge are not empty
+            if len(real_edge) == 0 or len(pred_edge) == 0:
+                raise ValueError("real_edge or pred_edge is empty after deletion")
 
             # New: AUROC on balanced
             print("real_edge real_edge", list(real_edge))
@@ -732,7 +789,7 @@ if __name__ == '__main__':
     parser.add_argument('-dropout_adj1', type=float, default=0.25, help='Dropout rate (1 - keep probability).')
     parser.add_argument('-dropout_adj2', type=float, default=0.25, help='Dropout rate (1 - keep probability).')
     parser.add_argument('-dataset', type=str, default='cora', help='See choices',
-                        choices=['cora', 'cora_ml', 'bitcoin', 'credit', 'citeseer', 'pubmed'])
+                        choices=['cora', 'cora_ml', 'bitcoin', 'credit', 'citeseer', 'pubmed','coraprivate'])
     parser.add_argument('-nlayers', type=int, default=2, help='#layers')
     parser.add_argument('-nlayers_adj', type=int, default=2, help='#layers')
     parser.add_argument('-patience', type=int, default=10, help='Patience for early stopping')
@@ -778,12 +835,37 @@ if __name__ == '__main__':
                         help='if 0, no defense, 1 = use the defense that splits into multiple explanations and perturb and add together again. 2 = Do multi-bit piecewise mechanism i.e no explanation splitting, 3 = Gaussian, 4 = Multibit,  5 = Randomized response')
     parser.add_argument('-epsilon', type=float, default=0.0001, help='epsilon for perturbing the explanations')
     parser.add_argument('-num_exp_in_each_split', type=int, default=10, help='Number of explanation vector in each split for defense 1. Input any number between 2 and num_feature-1')
-
+    # # Add argument for private dataset
+    # parser.add_argument('--private-dataset-dir', type=str, required=True, help="Path to the private dataset directory")
 
     args = parser.parse_args()
+    
+    #  # Load privatized dataset
+    # private_data = load_private_dataset(args.private_dataset_dir)
+
+    # # Example: Use the private dataset for explanation generation
+    # explanations = generate_explanations(model, private_data['features'], private_data['adj'], node_id=0)
+    # print(f"Explanation for Node 0: {explanations}")
+
+    # # Save the explanations
+    # Saved_Explanations(explanations, "./saved_explanations/private_cora_explanations.pt")
 
     print("model_type:", args.model)
     print("dataset", args.dataset)
+    
+    #-----------------------------------New
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--private-dataset-dir', type=str, required=True, help="Path to the private dataset directory")
+    # args = parser.parse_args()
+
+    # # Load privatized dataset
+    # private_data = load_private_dataset(args.private_dataset_dir)
+
+    # # Example: Use private data for explanation
+    # node_id = 0  # Node to explain
+    # explanation = generate_explanations(model, features, private_data, node_id)
+    # print(f"Explanation for Node {node_id}: {explanation}")
+    #-------------------------------------
 
     if args.use_exp_as_reconstruction_loss == 1:
         print("=================Using the explanation in the loss function====================================")
