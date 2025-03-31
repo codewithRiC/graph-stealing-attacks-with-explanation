@@ -38,6 +38,7 @@ def compare_explanations(exp1_dir, exp2_dir, num_nodes, target_size=1433):
 exp1_dir = 'Saved_Explanations/GraphLime/GCN/Cora'
 exp2_dir = 'Saved_Explanations/GraphLime/GCN/Coraprivate'
 
+
 # Number of nodes (adjust this based on your dataset)
 num_nodes = 2708
 

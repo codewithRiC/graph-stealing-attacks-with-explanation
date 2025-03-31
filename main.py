@@ -1,6 +1,7 @@
 #!/bin/bash
 import argparse
 import copy
+import wandb
 import numpy as np
 import os
 import torch
@@ -49,12 +50,14 @@ def compute_resources(model):
 
 
 def save_list(list_l, filename):
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
 	# save idx
-	with open(filename, 'w') as fp:
-		for item in list_l:
+    with open(filename, 'w') as fp:
+        for item in list_l:
 			# write each item on a new line
-			fp.write("%s\n" % item)
-		print('Done')
+            fp.write("%s\n" % item)
+        print('Done')
 
 def read_list(list_l, file_name):
 	with open(file_name, 'r') as fp:
@@ -160,12 +163,24 @@ class Experiment:
 
         # Ensure the dimensions match
         if features.shape[1] < mask.shape[1]:
+            # Case where features are smaller - add padding to features
             padding = mask.shape[1] - features.shape[1]
             features_padded = torch.nn.functional.pad(features, (0, padding))
             print(f"Padded shape of features: {features_padded.shape}")
+        elif features.shape[1] > mask.shape[1]:
+            # Case where mask is smaller - either pad mask or truncate features
+            # Option 1: Truncate features to match mask size
+            features_padded = features[:, :mask.shape[1]]
+            print(f"Truncated shape of features: {features_padded.shape}")
+            # Option 2 (alternative): Pad mask instead
+            # padding = features.shape[1] - mask.shape[1]
+            # mask = torch.nn.functional.pad(mask, (0, padding))
+            # print(f"Padded shape of mask: {mask.shape}")
+            # features_padded = features
         else:
+            # Dimensions already match
             features_padded = features
-
+            
         masked_features = features_padded * (1 - mask)
 
         if ogb:  # if the feature values are not binary, then you can set ogb to true!
@@ -232,6 +247,17 @@ class Experiment:
                 optimizer.zero_grad()
                 loss.backward()
 
+                if args.use_wandb:
+                    wandb.log({
+                        "Trail": trial,
+                        "Epoch": epoch,
+                        "Train Loss": loss.item(),
+                        "Train Accuracy": accu
+
+                    })
+
+
+
                 optimizer.step()
 
                 if epoch % 10 == 0:
@@ -264,6 +290,14 @@ class Experiment:
         print("mean test_accuracies==>", np.mean(test_accuracies))
         print("std test_accuracies",np.std(test_accuracies))
 
+        if args.use_wandb:
+            wandb.log({
+                "mean val_accuracies==>": np.mean(val_accuracies),
+                "std val_accuracies":np.std(val_accuracies),
+                "mean test_accuracies==>": np.mean(test_accuracies),
+                "std test_accuracies":np.std(test_accuracies)
+
+            })
 
         return val_accuracies, test_accuracies, best_model
 
@@ -401,6 +435,15 @@ class Experiment:
 
         print("reconstructed avg_prec mean", np.mean(avg_avg_prec))
         print("reconstructed avg_prec std", np.std(avg_avg_prec))
+
+        if args.use_wandb:
+            wandb.log({
+                "args.ntrials": args.ntrials,
+                "reconstructed_auroc_mean": np.mean(avg_auroc),
+                "reconstructed_avg_prec_mean": np.mean(avg_avg_prec),
+                "reconstructed_auroc_std": np.std(avg_auroc),
+                "reconstructed_avg_prec_std": np.std(avg_avg_prec)
+            })
 
 
         return auroc, avg_prec
@@ -664,12 +707,22 @@ class Experiment:
 
         print("args.ntrials", args.ntrials)
         print("avg_auroc", avg_auroc)
-        print("avg_avg_prec", avg_avg_prec)
+        print("avg_auroc", avg_auroc)
         print("reconstructed auroc mean", np.mean(avg_auroc))
         print("reconstructed avg_prec mean", np.mean(avg_avg_prec))
 
         print("reconstructed auroc std", np.std(avg_auroc))
         print("reconstructed avg_prec std", np.std(avg_avg_prec))
+
+         # Log metrics to wandb
+        if args.use_wandb:
+            wandb.log({
+                "args.ntrials": args.ntrials,
+                "reconstructed_auroc_mean": np.mean(avg_auroc),
+                "reconstructed_avg_prec_mean": np.mean(avg_avg_prec),
+                "reconstructed_auroc_std": np.std(avg_auroc),
+                "reconstructed_avg_prec_std": np.std(avg_avg_prec)
+            })
 
         self.print_results(validation_accu, test_accu)
 
@@ -680,6 +733,13 @@ class Experiment:
         print(validation_accu)
         print("average of val accuracy", np.mean(validation_accu))
         print("std of val accuracy", np.std(validation_accu))
+        if args.use_wandb:
+            wandb.log({
+                "average of attacker advantage": np.mean(test_accu),
+                "std attacker advantage": np.std(test_accu),
+                "average of val accuracy": np.mean(validation_accu),
+                "std of val accuracy": np.std(validation_accu)
+            })
 
 
     def reconstruction_metric(self, ori_adj, inference_adj, idx, dataset="none", trial=000, save_testset=0, run_all_testset=0, num_test=0):
@@ -770,6 +830,13 @@ class Experiment:
 
             avg_prec = average_precision_score(real_edge, pred_edge)
             print("Inference attack AUC: %f AP: %f" % (auroc, avg_prec))
+
+            if args.use_wandb:
+                wandb.log({
+                    "Trial": trial,
+                    "Inference attack AUC" : auroc,
+                    "Inference attack AP" : avg_prec
+                })
         return auroc, avg_prec
 
 
@@ -789,14 +856,16 @@ if __name__ == '__main__':
     parser.add_argument('-dropout_adj1', type=float, default=0.25, help='Dropout rate (1 - keep probability).')
     parser.add_argument('-dropout_adj2', type=float, default=0.25, help='Dropout rate (1 - keep probability).')
     parser.add_argument('-dataset', type=str, default='cora', help='See choices',
-                        choices=['cora', 'cora_ml', 'bitcoin', 'credit', 'citeseer', 'pubmed','coraprivate'])
+                        choices=['cora', 'cora_ml', 'bitcoin', 'credit', 'citeseer', 'pubmed','coraprivate','pubmedprivate','citeseerprivate'])
     parser.add_argument('-nlayers', type=int, default=2, help='#layers')
     parser.add_argument('-nlayers_adj', type=int, default=2, help='#layers')
     parser.add_argument('-patience', type=int, default=10, help='Patience for early stopping')
     parser.add_argument('-devices', help='Get devices auto assigned by condor')
     parser.add_argument('-ntrials', type=int, default=1, help='Number of trials')
-    parser.add_argument('-seeds', nargs='+', default=[1050154401, 87952126, 461858464, 2251922041, 2203565404,
-                                                      2569991973, 569824674, 2721098863, 836273002, 2935227127])
+    # parser.add_argument('-seeds', nargs='+', default=[1050154401, 87952126, 461858464, 2251922041, 2203565404,
+    #                                                   2569991973, 569824674, 2721098863, 836273002, 2935227127])
+    parser.add_argument('-seeds', nargs='+', default=[42220, 5488, 1111, 111,11,
+                                                      50, 60, 10, 30, 420])
     parser.add_argument('-k', type=int, default=20, help='k for initializing with knn')
     parser.add_argument('-ratio', type=int, default=20, help='ratio of ones to select for each mask')
     parser.add_argument('-epoch_d', type=float, default=5,
@@ -828,13 +897,17 @@ if __name__ == '__main__':
     parser.add_argument('-use_subgraph', type=int, default=0, choices=[1,0], help='run the subgraph experiment')
     parser.add_argument('-get_intersection', type=int, default=0, choices=[1, 0],
                         help='1 = run intersection and sparsity. if 0, no intersection will be ran')
-    parser.add_argument('-save_testset', type=int, default=0, choices=[1, 0],
+    parser.add_argument('-save_testset', type=int, default=1, choices=[1, 0],
                         help='1 = Save fixed testset. if 0, no testset is saved')
     parser.add_argument('-run_all_testset', type=int, default=0, choices=[1,0], help='1= for each experiment, run all 10 test! Total will 10 runs * 10 testset=100, 0= normal 10 times run')
     parser.add_argument('-use_defense', type=int, default=0, choices=[0, 1, 2, 3, 4, 5],
                         help='if 0, no defense, 1 = use the defense that splits into multiple explanations and perturb and add together again. 2 = Do multi-bit piecewise mechanism i.e no explanation splitting, 3 = Gaussian, 4 = Multibit,  5 = Randomized response')
     parser.add_argument('-epsilon', type=float, default=0.0001, help='epsilon for perturbing the explanations')
     parser.add_argument('-num_exp_in_each_split', type=int, default=10, help='Number of explanation vector in each split for defense 1. Input any number between 2 and num_feature-1')
+    # Add wandb logging arguments
+    parser.add_argument('--use_wandb', type=int, default=1, help='Whether to use wandb logging')
+    parser.add_argument('--wandb_entity', type=str, default='your-entity', help='Wandb entity')
+    parser.add_argument('--wandb_project', type=str, default='graph-stealing-attacks', help='Wandb project name')
     # # Add argument for private dataset
     # parser.add_argument('--private-dataset-dir', type=str, required=True, help="Path to the private dataset directory")
 
@@ -867,6 +940,15 @@ if __name__ == '__main__':
     # print(f"Explanation for Node {node_id}: {explanation}")
     #-------------------------------------
 
+    # Initialize wandb if enabled
+    if args.use_wandb:
+        run = wandb.init(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            config=vars(args),
+            name=f"{args.dataset}_{args.model}_attack"
+        )
+
     if args.use_exp_as_reconstruction_loss == 1:
         print("=================Using the explanation in the loss function====================================")
 
@@ -885,6 +967,10 @@ if __name__ == '__main__':
         experiment.run_intersection(args)
 
     end_time = time.time()
+
+    # Close wandb run
+    if args.use_wandb:
+        wandb.finish()
 
     total_time = end_time - start_time
     print("total time", total_time / args.ntrials)

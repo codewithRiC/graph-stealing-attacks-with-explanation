@@ -72,12 +72,94 @@ def load_dataset(data_set, working_directory=None):
      
         
         results_path = "coraprivate"
+
+    elif data_set == "PubMedPrivate":
+        # Path to the private dataset folder
+        private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")
+        
+        # Load the .pt file
+        graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
+        
+        # Extract node features, labels, and masks
+        node_features = graph_data["node_features"]
+        node_labels = graph_data["node_labels"]
+        train_mask = graph_data["train_mask"].squeeze()
+        val_mask = graph_data["val_mask"].squeeze()
+        test_mask = graph_data["test_mask"].squeeze()
+        
+        # Ensure node_labels is a 1D tensor
+        if node_labels.dim() > 1:
+            node_labels = node_labels.argmax(dim=1)  # Convert one-hot to class indices
+          
+        # Create a dummy edge_index if not provided
+        num_nodes = node_features.size(0)
+        edge_index = torch.empty((2, 0), dtype=torch.long)  # Empty edge_index
+           
+        # Create a PyG Data object
+        data = Data(
+            x=node_features,
+            edge_index=edge_index,  
+            y=node_labels,
+            train_mask=train_mask,
+            val_mask=val_mask,
+            test_mask=test_mask
+        )
+      
+        
+        # Create a Dataset namedtuple
+        from collections import namedtuple
+        Dataset = namedtuple("Dataset", "num_node_features num_classes")
+        dataset = Dataset(data.x.shape[1], torch.max(data.y).item() + 1)
+     
+        
+        results_path = "pubmedprivate"    
         
         
     elif data_set == "CiteSeer":
         dataset = Planetoid(root=working_directory.joinpath('tmp/CiteSeer'), name='CiteSeer')
         data = dataset[0]
         results_path = "citeseer"
+        
+    elif data_set == "CiteSeerPrivate":
+        # Path to the private dataset folder
+        private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")
+        
+        # Load the .pt file
+        graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
+        
+        # Extract node features, labels, and masks
+        node_features = graph_data["node_features"]
+        node_labels = graph_data["node_labels"]
+        train_mask = graph_data["train_mask"].squeeze()
+        val_mask = graph_data["val_mask"].squeeze()
+        test_mask = graph_data["test_mask"].squeeze()
+        
+        # Ensure node_labels is a 1D tensor
+        if node_labels.dim() > 1:
+            node_labels = node_labels.argmax(dim=1)  # Convert one-hot to class indices
+          
+        # Create a dummy edge_index if not provided
+        num_nodes = node_features.size(0)
+        edge_index = torch.empty((2, 0), dtype=torch.long)  # Empty edge_index
+           
+        # Create a PyG Data object
+        data = Data(
+            x=node_features,
+            edge_index=edge_index,  
+            y=node_labels,
+            train_mask=train_mask,
+            val_mask=val_mask,
+            test_mask=test_mask
+        )
+      
+        
+        # Create a Dataset namedtuple
+        from collections import namedtuple
+        Dataset = namedtuple("Dataset", "num_node_features num_classes")
+        dataset = Dataset(data.x.shape[1], torch.max(data.y).item() + 1)
+     
+        
+        results_path = "citeseerprivate"    
     elif data_set == "PubMed":
         dataset = Planetoid(root=working_directory.joinpath('tmp/PubMed'), name='PubMed')
         data = dataset[0]
@@ -143,28 +225,61 @@ def load_dataset(data_set, working_directory=None):
         from collections import namedtuple
         Dataset = namedtuple("Dataset", "num_node_features num_classes")
         dataset = Dataset(1, max(data.y.numpy()) + 1)
+        
+   
 
     elif data_set =='cora_ml':
-        graph = load_dataset_text(data_set)
-        A = graph['A']
-        y = torch.tensor(graph['z'])
+        try:
+            graph = load_dataset_text(data_set)
+            A = graph['A']
+            y = torch.tensor(graph['z'], dtype=torch.long) # Ensure labels are long type
 
-        x = np.load('w2v_embeddings.npy',allow_pickle=True)
-        x = torch.tensor(x,dtype=torch.float)
-        Acoo = A.tocoo()
+            try:
+                x = np.load('w2v_embeddings.npy',allow_pickle=True)
+                x = torch.tensor(x,dtype=torch.float)
+            except FileNotFoundError:
+                print("Error: w2v_embeddings.npy not found.  Provide the embeddings or generate random ones.")
+                num_nodes = A.shape[0]
+                x = torch.randn(num_nodes, 128)  # Example: Random embeddings of size 128
+                # Or, initialize with zeros: x = torch.zeros(num_nodes, embedding_dim)
 
-        Apt = torch.sparse.LongTensor(torch.LongTensor([Acoo.row.tolist(), Acoo.col.tolist()]),
-                                      torch.LongTensor(Acoo.data.astype(np.int32)))
 
-        edge_index = Apt._indices()
+            Acoo = A.tocoo()
 
-        data = Data(x=x,edge_index=edge_index,y=y)
-        print(data.y)
-        data.train_mask, data.val_mask, data.test_mask = create_train_val_test_mask(data)
-        from collections import namedtuple
-        Dataset = namedtuple("Dataset", "num_node_features num_classes")
-        dataset = Dataset(data.x.shape[1], max(data.y.numpy()) + 1)
-        results_path = "cora_ml"
+            edge_index = torch.tensor([Acoo.row, Acoo.col], dtype=torch.long) # Create edge_index directly
+
+            data = Data(x=x,edge_index=edge_index,y=y)
+            print(data.y)
+            data.train_mask, data.val_mask, data.test_mask = create_train_val_test_mask(data)
+            from collections import namedtuple
+            Dataset = namedtuple("Dataset", "num_node_features num_classes")
+            dataset = Dataset(data.x.shape[1], max(data.y.numpy()) + 1)
+            results_path = "cora_ml"
+
+        except Exception as e:
+            print(f"Error loading cora_ml dataset: {e}")
+            raise # re-raise the exception so that the program stops, and you see the error
+        
+        # graph = load_dataset_text(data_set)
+        # A = graph['A']
+        # y = torch.tensor(graph['z'])
+
+        # x = np.load('w2v_embeddings.npy',allow_pickle=True)
+        # x = torch.tensor(x,dtype=torch.float)
+        # Acoo = A.tocoo()
+
+        # Apt = torch.sparse.LongTensor(torch.LongTensor([Acoo.row.tolist(), Acoo.col.tolist()]),
+        #                               torch.LongTensor(Acoo.data.astype(np.int32)))
+
+        # edge_index = Apt._indices()
+
+        # data = Data(x=x,edge_index=edge_index,y=y)
+        # print(data.y)
+        # data.train_mask, data.val_mask, data.test_mask = create_train_val_test_mask(data)
+        # from collections import namedtuple
+        # Dataset = namedtuple("Dataset", "num_node_features num_classes")
+        # dataset = Dataset(data.x.shape[1], max(data.y.numpy()) + 1)
+        # results_path = "cora_ml"
 
 
     elif data_set=="Bitcoin_alpha":
@@ -278,46 +393,47 @@ def load_dataset_text(file_name):
         return graph
 
 
-def create_syn(dataset_name="syn2"):
-    import generate_gnnexplainer_dataset as gn
-    if dataset_name == "syn2":
-        g, labels, name = gn.gen_syn2()
-    elif dataset_name == "syn1":
-        g, labels, name = gn.gen_syn1()
-    else:
-        raise NotImplementedError("Dataset not known")
+## this function is for syn2 dataset , which we are not using------------------------
+# def create_syn(dataset_name="syn2"):
+#     import generate_gnnexplainer_dataset as gn
+#     if dataset_name == "syn2":
+#         g, labels, name = gn.gen_syn2()
+#     elif dataset_name == "syn1":
+#         g, labels, name = gn.gen_syn1()
+#     else:
+#         raise NotImplementedError("Dataset not known")
 
-    data = from_networkx(g)
+#     data = from_networkx(g)
 
-    edge_index = data.edge_index.numpy()
-    x = data.x.numpy().astype(np.float32)
-    y = np.array(labels)
+#     edge_index = data.edge_index.numpy()
+#     x = data.x.numpy().astype(np.float32)
+#     y = np.array(labels)
 
-    train_ratio = 0.8
+#     train_ratio = 0.8
 
-    num_nodes = x.shape[0]
-    num_train = int(num_nodes * train_ratio)
-    idx = [i for i in range(num_nodes)]
+#     num_nodes = x.shape[0]
+#     num_train = int(num_nodes * train_ratio)
+#     idx = [i for i in range(num_nodes)]
 
-    np.random.shuffle(idx)
-    train_mask = np.full_like(y, False, dtype=bool)
-    train_mask[idx[:num_train]] = True
-    test_mask = np.full_like(y, False, dtype=bool)
-    test_mask[idx[num_train:]] = True
+#     np.random.shuffle(idx)
+#     train_mask = np.full_like(y, False, dtype=bool)
+#     train_mask[idx[:num_train]] = True
+#     test_mask = np.full_like(y, False, dtype=bool)
+#     test_mask[idx[num_train:]] = True
 
-    save_data = {"edge_index": edge_index,
-                 "x": x,
-                 "y": y,
-                 "train_mask": train_mask,
-                 "test_mask": test_mask,
-                 "num_nodes": g.number_of_nodes()
-                 }
+#     save_data = {"edge_index": edge_index,
+#                  "x": x,
+#                  "y": y,
+#                  "train_mask": train_mask,
+#                  "test_mask": test_mask,
+#                  "num_nodes": g.number_of_nodes()
+#                  }
 
-    if dataset_name == "syn2":
-        np.savez_compressed(SYN2_PATH, **save_data)
-    elif dataset_name == "syn1":
-        np.savez_compressed(SYN1_PATH, **save_data)
-    return save_data
+#     if dataset_name == "syn2":
+#         np.savez_compressed(SYN2_PATH, **save_data)
+#     elif dataset_name == "syn1":
+#         np.savez_compressed(SYN1_PATH, **save_data)
+#     return save_data
 
 
 # a slight adoption of the method of Planetoid

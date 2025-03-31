@@ -1,7 +1,7 @@
 import pickle as pkl
 import sys
 import warnings
-
+import os
 import numpy as np
 import scipy.sparse as sp
 import torch
@@ -174,31 +174,52 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
     names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
     objects = []
     for i in range(len(names)):
-        with open("./Dataset/data_tf/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
-            if sys.version_info > (3, 0):
-                objects.append(pkl.load(f, encoding='latin1'))
-            else:
-                objects.append(pkl.load(f))
+        try: 
+            with open("./Dataset/data_tf/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
+                if sys.version_info > (3, 0):
+                    objects.append(pkl.load(f, encoding='latin1'))
+                else:
+                    objects.append(pkl.load(f))
+        except Exception as e:
+            print(f"Error loading file: ./Dataset/data_tf/ind.{dataset_str}.{names[i]}")
+            print(f"Exception: {e}")
+            raise                        
 
     x, y, tx, ty, allx, ally, graph = tuple(objects)
     test_idx_reorder = parse_index_file("./Dataset/data_tf/ind.{}.test.index".format(dataset_str))
     test_idx_range = np.sort(test_idx_reorder)
-    if dataset_str == 'citeseer':
-        # Fix citeseer dataset (there are some isolated nodes in the graph)
-        # Find isolated nodes, add them as zero-vecs into the right position
-        test_idx_range_full = range(min(test_idx_reorder), max(test_idx_reorder) + 1)
-        tx_extended = sp.lil_matrix((len(test_idx_range_full), x.shape[1]))
-        tx_extended[test_idx_range - min(test_idx_range), :] = tx
-        tx = tx_extended
-        ty_extended = np.zeros((len(test_idx_range_full), y.shape[1]))
-        ty_extended[test_idx_range - min(test_idx_range), :] = ty
-        ty = ty_extended
+    # if dataset_str == 'citeseer':           # Uncomment it when the original auxiliary info is being used
+    #     # Fix citeseer dataset (there are some isolated nodes in the graph)
+    #     # Find isolated nodes, add them as zero-vecs into the right position
+    #     test_idx_range_full = range(min(test_idx_reorder), max(test_idx_reorder) + 1)
+    #     tx_extended = sp.lil_matrix((len(test_idx_range_full), x.shape[1]))
+    #     tx_extended[test_idx_range - min(test_idx_range), :] = tx
+    #     tx = tx_extended
+    #     ty_extended = np.zeros((len(test_idx_range_full), y.shape[1]))
+    #     ty_extended[test_idx_range - min(test_idx_range), :] = ty
+    #     ty = ty_extended
+        
+    #------------Added for reconstructing into private graph---------------
+    allx = torch.tensor(allx).cpu() if torch.is_tensor(allx) else allx
+    tx = torch.tensor(tx).cpu() if torch.is_tensor(tx) else tx
+    ally = ally.cpu() if torch.is_tensor(ally) else ally
+    ty = ty.cpu() if torch.is_tensor(ty) else ty
+    #----------------------------------------------------------------------
+    
+    print(f"allx.shape: {allx.shape}")
+    print(f"tx.shape: {tx.shape}")
+    
 
     features = sp.vstack((allx, tx)).tolil()
+    print(f"features.shape after vstack: {features.shape}")
     features[test_idx_reorder, :] = features[test_idx_range, :]
+    print(f"features.shape after reordering: {features.shape}")
+    
 
     labels = np.vstack((ally, ty))
+    print(f"labels.shape: {labels.shape}")
     labels[test_idx_reorder, :] = labels[test_idx_range, :]
+    print(f"labels.shape after reordering: {labels.shape}")
     idx_test = test_idx_range.tolist()
     idx_train = range(len(y))
     idx_val = range(len(y), len(y) + 500)
@@ -276,8 +297,12 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
                 # remove extra dimension
                 feat_exp_i = (np.asarray(feat_exp_i)).flatten()
             else:
-                feat_exp_i = torch.load(exp_folder + str(i) + ".pt")  # load explanations
-
+                # feat_exp_i = torch.load(exp_folder + str(i) + ".pt")  # load explanations
+                file_path = exp_folder + str(i) + ".pt"
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                    feat_exp_i = torch.load(file_path)  # load explanations
+                else:
+                    raise FileNotFoundError(f"File {file_path} does not exist or is empty.")
 
             # if dataset_str == "citeseer" or dataset_str == "pubmed" or dataset_str == "cora":
             if dataset_str == "cora":

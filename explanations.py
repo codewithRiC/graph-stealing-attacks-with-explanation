@@ -14,7 +14,7 @@ from pathlib import Path
 from torch_geometric.utils import to_dense_adj,k_hop_subgraph
 def save_model(model, path):
     torch.save(model.state_dict(), path)
-from torch_geometric.utils import to_dense_adj,k_hop_subgraph
+
 from graph_lime import *
 from torch_geometric.data import Data
 from torch_geometric.datasets import Planetoid
@@ -56,7 +56,7 @@ args = arg_parse()
 working_directory = Path("./tmp_ds").resolve()
 
 if args.explainer=="Grad":
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 else:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     

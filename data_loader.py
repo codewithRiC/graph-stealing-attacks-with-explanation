@@ -1102,10 +1102,62 @@ def load_data(args):
             nfeats = 3703
             nclasses = 6
             path = "./saved_models/GCN/CiteSeergcn_2_layers.pt" #"./saved_models/GCN/CiteSeer_.pth.tar"
+        elif dataset_str == "citeseerprivate":
+            nfeats = 3703
+            nclasses = 6
+            #Define the model
+            released_model = GCN_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
+                                    num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,
+                                    sparse=args.sparse)
+
+            # Save the model
+            model_path = "./saved_models/GCN/CiteSeerPrivate_.pth.tar"
+            torch.save(released_model.state_dict(), model_path)
+            print(f"Model saved to: {model_path}")
+            
+            
+            # Define the directory and path
+            directory = "./saved_models/GCN/"
+            path = os.path.join(directory, "CiteSeerPrivate_.pth.tar")
+
+            # Check if the file exists
+            if not os.path.exists(path):
+                # Create an empty file if it doesn't exist
+                with open(path, "w") as f:
+                    pass  # Create an empty file
+                print(f"Created empty file: {path}")
+            else:
+                print(f"File already exists: {path}")      
         elif dataset_str == "pubmed":
             nfeats = 500
             nclasses = 3
-            path = "./saved_models/GCN/Pubmedgcn_2_layers.pt" #"./saved_models/GCN/PubMed_.pth.tar"
+            path = "./saved_models/GCN/PubMed_.pth.tar"  #"./saved_models/GCN/Pubmedgcn_2_layers.pt"   
+        elif dataset_str == "pubmedprivate":
+            nfeats = 500
+            nclasses = 3
+            #Define the model
+            released_model = GCN_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
+                                    num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,
+                                    sparse=args.sparse)
+
+            # Save the model
+            model_path = "./saved_models/GCN/PubMedPrivate_.pth.tar"
+            torch.save(released_model.state_dict(), model_path)
+            print(f"Model saved to: {model_path}")
+            
+            
+            # Define the directory and path
+            directory = "./saved_models/GCN/"
+            path = os.path.join(directory, "PubMedPrivate_.pth.tar")
+
+            # Check if the file exists
+            if not os.path.exists(path):
+                # Create an empty file if it doesn't exist
+                with open(path, "w") as f:
+                    pass  # Create an empty file
+                print(f"Created empty file: {path}")
+            else:
+                print(f"File already exists: {path}")    
         elif dataset_str == "coraprivate":
             nfeats = 1433
             nclasses = 7
