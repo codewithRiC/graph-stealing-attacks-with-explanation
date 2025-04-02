@@ -462,6 +462,7 @@ class Experiment:
         device_gnn_rec_dae = torch.device(device_id) #cuda:1
         # device_gnn_layer_1 = torch.device("cuda:3")
 
+
         if args.use_exp_as_reconstruction_loss == 1:
             explanations, features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, \
             saved_model_path = load_data(args)
@@ -548,6 +549,12 @@ class Experiment:
             best_val_accu = 0.0
             best_model2 = None
             best_Adj = None
+            best_features = None  # Initialize variable to store the best node features
+            best_labels = None  # Initialize variable to store the best node labels
+            best_train_mask = None  # Initialize variable to store the best train mask
+            best_val_mask = None  # Initialize variable to store the best validation mask
+            best_test_mask = None  # Initialize variable to store the best test mask
+
 
             ''' Learning Adjacency '''
             for epoch in range(1, args.epochs_adj + 1):
@@ -638,6 +645,12 @@ class Experiment:
 
                         if val_accu > best_val_accu:
                             best_val_accu = val_accu
+                            best_Adj = Adj.clone().detach().cuda()  # Clone and detach the tensor to avoid indexing issues
+                            best_features = features.clone().detach().cuda()  # Save node features
+                            best_labels = labels.clone().detach().cuda()  # Save node labels
+                            best_train_mask = train_mask.clone().detach().cuda()  # Save train mask
+                            best_val_mask = val_mask.clone().detach().cuda()  # Save validation mask
+                            best_test_mask = test_mask.clone().detach().cuda()  # Save test mask
                             print("Val Loss {:.4f}, Val Accuracy {:.4f}".format(val_loss, val_accu))
                             if args.dataset == "credit" or args.dataset == "pubmed":
                                 test_loss_, test_accu_ = self.get_loss_learnable_adj(model2, test_mask, features.cuda(),
@@ -646,6 +659,7 @@ class Experiment:
                                 test_loss_, test_accu_ = self.get_loss_learnable_adj(model2, test_mask, features.cuda(),
                                                                                      labels, Adj.cuda(), isPyG=True)
                             print("Test Loss {:.4f}, Test Accuracy {:.4f}".format(test_loss_, test_accu_))
+                         
 
             validation_accu.append(best_val_accu.item())
             model1.eval()
@@ -704,6 +718,24 @@ class Experiment:
             avg_auroc.append(auroc)
             avg_avg_prec.append(avg_prec)
             print("trial", trial)
+            # Define the folder structure
+            base_folder = "saved_reconstructed_dataset"
+            dataset_folder = os.path.join(base_folder, args.dataset)
+            os.makedirs(dataset_folder, exist_ok=True)  # Create the folder structure if it doesn't exist
+
+            # Save the reconstructed adjacency matrix as a .pt file
+            file_path = os.path.join(dataset_folder, "graph_data.pt")
+            graph_data = {
+                "adjacency_matrix": best_Adj,
+                "node_features": best_features,
+                "node_labels": best_labels,
+                "train_mask": best_train_mask,
+                "val_mask": best_val_mask,
+                "test_mask": best_test_mask,
+            }
+            torch.save(graph_data, file_path)
+            print(f"Reconstructed graph saved at '{file_path}'")
+         
 
         print("args.ntrials", args.ntrials)
         print("avg_auroc", avg_auroc)
@@ -863,7 +895,7 @@ if __name__ == '__main__':
     parser.add_argument('-devices', help='Get devices auto assigned by condor')
     parser.add_argument('-ntrials', type=int, default=1, help='Number of trials')
     # parser.add_argument('-seeds', nargs='+', default=[1050154401, 87952126, 461858464, 2251922041, 2203565404,
-    #                                                   2569991973, 569824674, 2721098863, 836273002, 2935227127])
+    #                                                   2569991973, 569824674, 2721098863, 836273002, 2935227127]) #Original seed
     parser.add_argument('-seeds', nargs='+', default=[42220, 5488, 1111, 111,11,
                                                       50, 60, 10, 30, 420])
     parser.add_argument('-k', type=int, default=20, help='k for initializing with knn')
@@ -956,7 +988,10 @@ if __name__ == '__main__':
     start_time = time.time()
 
     if args.model == "end2end":
-        experiment.train_end_to_end(args)
+        experiment.train_end_to_end(args)  # orginal one, where the graph data is not saved
+      
+
+       
     elif args.model == "normal":
         experiment.train_test_normal(args)
     elif args.model == "pairwise_sim":
