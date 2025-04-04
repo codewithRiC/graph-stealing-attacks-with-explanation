@@ -155,6 +155,32 @@ class Experiment:
         logits = model(new_features)
         loss = F.binary_cross_entropy_with_logits(logits[:, feat_ind], labels, weight=labels + 1)
         return loss
+    
+    def get_loss_learnable_adj_expl(self, model, mask, features, labels, adj, original_expl_dir, private_expl_dir, args):
+        classification_loss, accuracy = self.get_loss_learnable_adj(model, mask, features, labels, adj, isPyG=True)
+        explanation_loss = self.get_loss_explanation_comparison(original_expl_dir, private_expl_dir, args)
+        total_loss = classification_loss + explanation_loss
+        return total_loss, accuracy
+    
+    def get_loss_explanation_comparison(self, original_expl_dir, private_expl_dir, args):
+        mse_loss = torch.nn.MSELoss()
+        total_loss = 0.0
+
+        for node in range(args.num_nodes):
+            original_path = os.path.join(original_expl_dir, f'feature_masks_node={node}.pt')
+            private_path = os.path.join(private_expl_dir, f'feature_masks_node={node}.pt')
+
+            if os.path.exists(original_path) and os.path.exists(private_path):
+                original_expl = torch.load(original_path).cuda()
+                private_expl = torch.load(private_path).cuda()
+
+                # Calculate MSE for this node
+                loss = mse_loss(original_expl, private_expl)
+                total_loss += loss.item()
+            else:
+                print(f"Explanation for node {node} not found in one of the directories.")
+
+        return total_loss / args.num_nodes
 
     # for getting the loss of GCN_DAE after adding noise!
     def get_loss_masked_features(self, model, features, mask, ogb, noise, loss_t):
@@ -448,6 +474,122 @@ class Experiment:
 
         return auroc, avg_prec
 
+
+    def train_end_to_end_expl(self, args, original_expl_dir, private_expl_dir):
+        device_gnn_dae = torch.device(device_id)  # cuda:1
+        device_gnn_rec_dae = torch.device(device_id)  # cuda:1
+
+        # Load data
+        features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, saved_model_path = load_data(args)
+
+        print("train_mask", train_mask.shape)  # Shape of train mask
+        print("Original feature", features.shape)  # Shape of features
+        print("Original Adj", original_adj.shape)  # Shape of adjacency matrix
+
+        test_accu = []
+        validation_accu = []
+        avg_auroc = []
+        avg_avg_prec = []
+
+        # Data fixed but model changes for multiple trials
+        for trial in range(args.ntrials):
+            print("trial", trial)
+
+            # Model1: DAE for adjacency reconstruction
+            model1 = GCN_DAE(nlayers=args.nlayers_adj, in_dim=nfeats, hidden_dim=args.hidden_adj, nclasses=nfeats,
+                            dropout=args.dropout1, dropout_adj=args.dropout_adj1,
+                            features=features.cpu(), k=args.k, knn_metric=args.knn_metric, i_=args.i,
+                            non_linearity=args.non_linearity, normalization=args.normalization,
+                            gen_mode=args.gen_mode, sparse=args.sparse)
+
+            # Model2: For explanation comparison
+            model2 = GCN_C_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
+                            num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,
+                            sparse=args.sparse)
+
+            optimizer1 = torch.optim.Adam(model1.parameters(), lr=args.lr_adj, weight_decay=args.w_decay_adj)
+            optimizer2 = torch.optim.Adam(model2.parameters(), lr=args.lr, weight_decay=args.w_decay)
+
+            if torch.cuda.is_available():
+                model1 = model1.to(device_gnn_dae)
+                model2 = model2.cuda()
+                train_mask = train_mask.cuda()
+                val_mask = val_mask.cuda()
+                test_mask = test_mask.cuda()
+                features = features.cuda()
+                labels = labels.cuda()
+
+            best_val_accu = 0.0
+            best_Adj = None
+
+            ''' Learning Adjacency '''
+            for epoch in range(1, args.epochs_adj + 1):
+                model1.train()
+                model2.train()
+
+                optimizer1.zero_grad()
+                optimizer2.zero_grad()
+
+                # Generate random mask
+                if args.dataset in ["cora_ml", "bitcoin", "credit", "pubmed"]:
+                    mask = get_random_mask_ogb(features, args.ratio).to(device_gnn_dae)
+                    ogb = True
+                else:
+                    mask = get_random_mask(features, args.ratio, args.nr).cuda()
+                    ogb = False
+
+                # Loss1: Adjacency reconstruction loss
+                loss1, Adj = self.get_loss_masked_features(model1.to(device_gnn_dae), features.to(device_gnn_dae),
+                                                        mask.to(device_gnn_dae), ogb, args.noise, args.loss)
+
+                # Loss2: Explanation comparison loss (MSE between original and private explanations)
+                loss2 = self.get_loss_explanation_comparison(original_expl_dir, private_expl_dir, args)
+
+                # Final loss
+                loss = loss1.cuda() * args.lambda_ + loss2
+                loss.backward()
+                optimizer1.step()
+                optimizer2.step()
+
+                # Print loss every 100 epochs
+                if epoch % 100 == 0:
+                    print("Epoch {:05d} | Train Loss {:.4f}, {:.4f}".format(epoch, loss1.item() * args.lambda_,
+                                                                            loss2.item()))
+
+                # Validation
+                if epoch >= args.epochs_adj // args.epoch_d and epoch % 1 == 0:
+                    with torch.no_grad():
+                        model1.eval()
+                        model2.eval()
+
+                        val_loss, val_accu = self.get_loss_learnable_adj_expl(model2, val_mask, features.cuda(), labels,
+                                                                            Adj.cuda(), original_expl_dir, private_expl_dir, args)
+
+                        if val_accu > best_val_accu:
+                            best_val_accu = val_accu
+                            best_Adj = Adj.clone().detach().cuda()
+                            print("Val Loss {:.4f}, Val Accuracy {:.4f}".format(val_loss, val_accu))
+
+            validation_accu.append(best_val_accu.item())
+
+            # Save reconstructed graph
+            base_folder = "saved_reconstructed_dataset"
+            dataset_folder = os.path.join(base_folder, args.dataset)
+            os.makedirs(dataset_folder, exist_ok=True)
+
+            file_path = os.path.join(dataset_folder, "graph_data.pt")
+            graph_data = {
+                "adjacency_matrix": best_Adj,
+                "node_features": features,
+                "node_labels": labels,
+                "train_mask": train_mask,
+                "val_mask": val_mask,
+                "test_mask": test_mask,
+            }
+            torch.save(graph_data, file_path)
+            print(f"Reconstructed graph saved at '{file_path}'")
+
+            
     def train_end_to_end(self, args):
         # all_devices = args.devices
         # print("all_devices", all_devices)
@@ -894,10 +1036,12 @@ if __name__ == '__main__':
     parser.add_argument('-patience', type=int, default=10, help='Patience for early stopping')
     parser.add_argument('-devices', help='Get devices auto assigned by condor')
     parser.add_argument('-ntrials', type=int, default=1, help='Number of trials')
-    # parser.add_argument('-seeds', nargs='+', default=[1050154401, 87952126, 461858464, 2251922041, 2203565404,
-    #                                                   2569991973, 569824674, 2721098863, 836273002, 2935227127]) #Original seed
-    parser.add_argument('-seeds', nargs='+', default=[42220, 5488, 1111, 111,11,
-                                                      50, 60, 10, 30, 420])
+    parser.add_argument('-seeds', nargs='+', default=[1050154401, 87952126, 461858464, 2251922041, 2203565404,
+                                                      2569991973, 569824674, 2721098863, 836273002, 2935227127]) #Original seed
+    # parser.add_argument('-seeds', nargs='+', default=[42220, 5488, 1111, 111,11,
+    #                                                   50, 60, 10, 30, 420]) #Another seed
+    # parser.add_argument('-seeds', nargs='+', default=[1, 2, 3, 4,5,
+    #                                                   6, 7, 8, 9, 10])
     parser.add_argument('-k', type=int, default=20, help='k for initializing with knn')
     parser.add_argument('-ratio', type=int, default=20, help='ratio of ones to select for each mask')
     parser.add_argument('-epoch_d', type=float, default=5,
@@ -906,7 +1050,7 @@ if __name__ == '__main__':
     parser.add_argument('-nr', type=int, default=5, help='ratio of zeros to ones')
     parser.add_argument('-knn_metric', type=str, default='cosine', help='See choices', choices=['cosine', 'minkowski'])
     parser.add_argument('-model', type=str, default="exp_intersection", help='See choices',
-                        choices=['end2end', 'normal', 'pairwise_sim', 'fidelity', 'exp_intersection']) #default="end2end". Normal will give the default performance!
+                        choices=['end2end', 'normal', 'pairwise_sim', 'fidelity', 'exp_intersection', 'end2endexpl']) #default="end2end". Normal will give the default performance!
     parser.add_argument('-i', type=int, default=6)
     parser.add_argument('-non_linearity', type=str, default='elu')
     parser.add_argument('-normalization', type=str, default='sym')
@@ -914,6 +1058,10 @@ if __name__ == '__main__':
     parser.add_argument('-sparse', type=int, default=0)
     parser.add_argument('-noise', type=str, default="mask", choices=['mask', 'normal'])
     parser.add_argument('-loss', type=str, default="mse", choices=['mse', 'bce'])
+    
+    # New arguments for explanation directories
+    parser.add_argument('--original_expl_dir', type=str, required=True, help="Path to the directory containing original explanations")
+    parser.add_argument('--private_expl_dir', type=str, required=True, help="Path to the directory containing private explanations")
     parser.add_argument('-attack_type', type=str, default='gsef_concat', 
                         choices=['gsef_concat', 'gsef_mult', 'gsef', 'gse', 'explainsim', 'featuresim', 'slaps'])
     parser.add_argument('-explanation_method', type=str, default='grad',
@@ -989,9 +1137,8 @@ if __name__ == '__main__':
 
     if args.model == "end2end":
         experiment.train_end_to_end(args)  # orginal one, where the graph data is not saved
-      
-
-       
+    elif args.model == "end2endexpl":
+        experiment.train_end_to_end_expl(args)    
     elif args.model == "normal":
         experiment.train_test_normal(args)
     elif args.model == "pairwise_sim":

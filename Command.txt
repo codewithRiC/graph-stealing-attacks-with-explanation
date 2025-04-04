@@ -12,7 +12,7 @@ python main.py -model end2end -dataset coraprivate -explanation_method graphlime
 
 python main.py -model pairwise_sim -dataset cora -explanation_method graphlime -ntrials 10 -attack_type explainsim
 
- CUDA_VISIBLE_DEVICES=1 python main.py -model pairwise_sim -dataset pubmed -explanation_method grad --use_wandb 1 --wandb_project explainsim_grad_pubmed --wandb_entity rishiraj-sahoo-national-institute-of-science-education-a -ntrials 10 -attack_type explainsim
+CUDA_VISIBLE_DEVICES=1 python main.py -model pairwise_sim -dataset pubmed -explanation_method grad --use_wandb 1 --wandb_project explainsim_grad_pubmed --wandb_entity rishiraj-sahoo-national-institute-of-science-education-a -ntrials 10 -attack_type explainsim
 CUDA_VISIBLE_DEVICES=1 python main.py -model end2end -dataset pubmed -explanation_method grad --use_wandb 1 --wandb_project pubmed_E_A_P --wandb_entity rishiraj-sahoo-national-institute-of-science-education-a -ntrials 10 -attack_type gsef_mult
 python main.py -model end2end -dataset cora -explanation_method graphlime -ntrials 10 -attack_type gse
 
