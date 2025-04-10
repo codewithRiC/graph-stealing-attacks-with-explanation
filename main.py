@@ -6,7 +6,7 @@ import numpy as np
 import os
 import torch
 import torch.nn.functional as F
-
+import subprocess  # Import subprocess to use subprocess.run
 from torch_geometric.utils import dense_to_sparse, convert, from_networkx
 from data_loader import load_data
 from model import GCN, GCN_C, GCN_DAE, GCN_C_PyG, GCN_PyG
@@ -474,13 +474,19 @@ class Experiment:
 
         return auroc, avg_prec
 
-
-    def train_end_to_end_expl(self, args, original_expl_dir, private_expl_dir):
+    def train_end_to_end_expl(self, args):
         device_gnn_dae = torch.device(device_id)  # cuda:1
-        device_gnn_rec_dae = torch.device(device_id)  # cuda:1
-
+        device_gnn_rec_dae = torch.device(device_id) #cuda:1
         # Load data
-        features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, saved_model_path = load_data(args)
+        
+        
+        if args.use_exp_as_reconstruction_loss == 1:
+            explanations, features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, saved_model_path = load_data(args)
+            print("Exp", explanations)
+            print("Feat", features)
+        else:
+            features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, saved_model_path = load_data(args)
+        # features, nfeats, labels, nclasses, train_mask, val_mask, test_mask, original_adj, saved_model_path, *_ = load_data(args)
 
         print("train_mask", train_mask.shape)  # Shape of train mask
         print("Original feature", features.shape)  # Shape of features
@@ -488,8 +494,24 @@ class Experiment:
 
         test_accu = []
         validation_accu = []
-        avg_auroc = []
-        avg_avg_prec = []
+        avg_auroc = []  # List to store AUC for each trial
+        avg_avg_prec = []  # List to store Average Precision for each trial
+        
+         # Load original explanations (fixed for all epochs)
+        if not args.original_expl_dir:
+            raise ValueError("The argument --original_expl_dir is required to load original explanations.")
+        
+        original_expl_dir = args.original_expl_dir
+
+        # Load original explanations (fixed for all epochs)
+        original_expl = {}
+        for node in range(args.num_nodes):
+            original_path = os.path.join(original_expl_dir, f'feature_masks_node={node}.pt')
+            if os.path.exists(original_path):
+                original_expl[node] = torch.load(original_path).cuda()
+            else:
+                print(f"Original explanation for node {node} not found in {original_expl_dir}.")
+                raise FileNotFoundError(f"Original explanation for node {node} not found.")
 
         # Data fixed but model changes for multiple trials
         for trial in range(args.ntrials):
@@ -501,34 +523,50 @@ class Experiment:
                             features=features.cpu(), k=args.k, knn_metric=args.knn_metric, i_=args.i,
                             non_linearity=args.non_linearity, normalization=args.normalization,
                             gen_mode=args.gen_mode, sparse=args.sparse)
-
-            # Model2: For explanation comparison
-            model2 = GCN_C_PyG(in_channels=nfeats, hidden_channels=args.hidden, out_channels=nclasses,
-                            num_layers=args.nlayers, dropout=args.dropout2, dropout_adj=args.dropout_adj2,
-                            sparse=args.sparse)
+            
+            if args.use_exp_as_reconstruction_loss == 1:  # adding explanation reconstruction loss to the attack
+                model_exp = GCN_DAE(nlayers=args.nlayers_adj, in_dim=nfeats, hidden_dim=args.hidden_adj,
+                                    nclasses=nfeats,
+                                    dropout=args.dropout1, dropout_adj=args.dropout_adj1,
+                                    features=explanations.cpu(), k=args.k, knn_metric=args.knn_metric, i_=args.i,
+                                    non_linearity=args.non_linearity, normalization=args.normalization,
+                                    gen_mode=args.gen_mode, sparse=args.sparse)
 
             optimizer1 = torch.optim.Adam(model1.parameters(), lr=args.lr_adj, weight_decay=args.w_decay_adj)
-            optimizer2 = torch.optim.Adam(model2.parameters(), lr=args.lr, weight_decay=args.w_decay)
+            
+            
+            if args.use_exp_as_reconstruction_loss == 1:
+                optimizer_exp = torch.optim.Adam(model_exp.parameters(), lr=args.lr_adj, weight_decay=args.w_decay_adj)
 
             if torch.cuda.is_available():
                 model1 = model1.to(device_gnn_dae)
-                model2 = model2.cuda()
                 train_mask = train_mask.cuda()
                 val_mask = val_mask.cuda()
                 test_mask = test_mask.cuda()
                 features = features.cuda()
                 labels = labels.cuda()
+                
+                
+                if args.use_exp_as_reconstruction_loss == 1:
+                    model_exp = model_exp.to(device_gnn_rec_dae)
+                    explanations = explanations.to(device_gnn_rec_dae)
 
             best_val_accu = 0.0
             best_Adj = None
+            best_features = None  # Initialize variable to store the best node features
+            best_labels = None  # Initialize variable to store the best node labels
+            best_train_mask = None  # Initialize variable to store the best train mask
+            best_val_mask = None  # Initialize variable to store the best validation mask
+            best_test_mask = None  # Initialize variable to store the best test mask
 
             ''' Learning Adjacency '''
             for epoch in range(1, args.epochs_adj + 1):
                 model1.train()
-                model2.train()
-
                 optimizer1.zero_grad()
-                optimizer2.zero_grad()
+                
+                if args.use_exp_as_reconstruction_loss == 1:
+                    model_exp.train()
+                    optimizer_exp.zero_grad()
 
                 # Generate random mask
                 if args.dataset in ["cora_ml", "bitcoin", "credit", "pubmed"]:
@@ -537,19 +575,91 @@ class Experiment:
                 else:
                     mask = get_random_mask(features, args.ratio, args.nr).cuda()
                     ogb = False
+                   
+                
+                if epoch < args.epochs_adj // args.epoch_d:    
+                    loss1, Adj = self.get_loss_masked_features(model1.to(device_gnn_dae), features.to(device_gnn_dae),
+                                                                mask.to(device_gnn_dae), ogb, args.noise, args.loss)
+                    if args.use_exp_as_reconstruction_loss == 1:
+                            loss_exp, Adj_exp = self.get_loss_masked_features(model_exp.to(device_gnn_rec_dae), explanations.to(device_gnn_rec_dae), mask.to(device_gnn_rec_dae), ogb, args.noise, args.loss)
+                            Adj = Adj.cuda() + Adj_exp.cuda()
+                    loss2 = torch.tensor(0).cuda()        
+                else:
+                    # Loss1: Adjacency reconstruction loss
+                    loss1, Adj = self.get_loss_masked_features(model1.to(device_gnn_dae), features.to(device_gnn_dae),
+                                                                mask.to(device_gnn_dae), ogb, args.noise, args.loss)
+                    if args.use_exp_as_reconstruction_loss == 1:
+                            loss_exp, Adj_exp = self.get_loss_masked_features(model_exp.to(device_gnn_rec_dae), explanations.to(device_gnn_rec_dae), mask.to(device_gnn_rec_dae), ogb, args.noise, args.loss)
+                            Adj = Adj.cuda() + Adj_exp.cuda()
 
-                # Loss1: Adjacency reconstruction loss
-                loss1, Adj = self.get_loss_masked_features(model1.to(device_gnn_dae), features.to(device_gnn_dae),
-                                                        mask.to(device_gnn_dae), ogb, args.noise, args.loss)
+                    # Save reconstructed graph to a directory
+                    base_folder = "saved_reconstructed_dataset"
+                    dataset_folder = os.path.join(base_folder, args.dataset, args.attack_type)
+                    os.makedirs(dataset_folder, exist_ok=True)
 
-                # Loss2: Explanation comparison loss (MSE between original and private explanations)
-                loss2 = self.get_loss_explanation_comparison(original_expl_dir, private_expl_dir, args)
+                    # Ensure the directory for graph_data.pt exists
+                    tmp_dir = "./tmp_ds/private_dataset/private_dataset1"
+                    os.makedirs(tmp_dir, exist_ok=True)
 
+                    file_path = os.path.join(tmp_dir, "graph_data.pt")
+                    graph_data = {
+                        "adjacency_matrix": Adj.clone().detach().cuda(),
+                        "node_features": features.clone().detach().cuda(),
+                        "node_labels": labels.clone().detach().cuda(),
+                        "train_mask": train_mask.clone().detach().cuda(),
+                        "val_mask": val_mask.clone().detach().cuda(),
+                        "test_mask": test_mask.clone().detach().cuda(),
+                    }
+                    torch.save(graph_data, file_path)
+                    print(f"Reconstructed graph saved at '{file_path}'")
+
+                    # Generate private explanations using the command
+                    private_expl_dir = os.path.join(dataset_folder, f"private_explanations_epoch_{epoch}")
+                    os.makedirs(private_expl_dir, exist_ok=True)
+
+                    command = f"python explanations.py --model GCN --dataset PubMedPrivate --explainer {args.explanation_method} --save_exp --output_dir {private_expl_dir} --start 0 --end {args.num_nodes - 1}"
+                    try:
+                        subprocess.run(command, shell=True, check=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"Command failed with return code {e.returncode}")
+                        print(f"Command output: {e.output}")
+                        raise
+                    # Move the generated explanations to the epoch-specific directory
+                    for node in range(args.num_nodes):
+                        generated_path = os.path.join(dataset_folder, f"feature_masks_node={node}.pt")
+                        if os.path.exists(generated_path):
+                            os.rename(generated_path, os.path.join(private_expl_dir, f"feature_masks_node={node}.pt"))
+
+                    # Load private explanations from the epoch-specific directory
+                    private_expl = {}
+                    for node in range(args.num_nodes):
+                        private_path = os.path.join(private_expl_dir, f'feature_masks_node={node}.pt')
+                        if os.path.exists(private_path):
+                            private_expl[node] = torch.load(private_path).cuda()
+                        else:
+                            print(f"Private explanation for node {node} not found in {private_expl_dir}.")
+                            raise FileNotFoundError(f"Private explanation for node {node} not found.")
+
+                    # Loss2: Explanation comparison loss (MSE between original and private explanations)
+                    mse_loss = torch.nn.MSELoss()
+                    loss2 = 0.0
+                    for node in range(args.num_nodes):
+                        print(f"Shape of original_expl[{node}]: {original_expl[node].shape}")
+                        print(f"Shape of private_expl[{node}]: {private_expl[node].shape}")
+                        loss2 += mse_loss(original_expl[node], private_expl[node])
+                    loss2 /= args.num_nodes
+        
                 # Final loss
-                loss = loss1.cuda() * args.lambda_ + loss2
+                '''===== Final loss ===='''
+                if args.use_exp_as_reconstruction_loss == 1:
+                    loss = loss1.cuda() + loss_exp.cuda() + loss2
+                else:      
+                    loss = loss1.cuda() * args.lambda_ + loss2
                 loss.backward()
                 optimizer1.step()
-                optimizer2.step()
+                
+                if args.use_exp_as_reconstruction_loss == 1:
+                    optimizer_exp.step()
 
                 # Print loss every 100 epochs
                 if epoch % 100 == 0:
@@ -560,35 +670,92 @@ class Experiment:
                 if epoch >= args.epochs_adj // args.epoch_d and epoch % 1 == 0:
                     with torch.no_grad():
                         model1.eval()
-                        model2.eval()
 
-                        val_loss, val_accu = self.get_loss_learnable_adj_expl(model2, val_mask, features.cuda(), labels,
-                                                                            Adj.cuda(), original_expl_dir, private_expl_dir, args)
+                        val_loss = loss1.item() * args.lambda_ + loss2.item()
+                        val_accu = 1 - val_loss  # Example metric, adjust as needed
 
                         if val_accu > best_val_accu:
                             best_val_accu = val_accu
                             best_Adj = Adj.clone().detach().cuda()
+                            best_features = features.clone().detach().cuda()  # Save node features
+                            best_labels = labels.clone().detach().cuda()  # Save node labels
+                            best_train_mask = train_mask.clone().detach().cuda()  # Save train mask
+                            best_val_mask = val_mask.clone().detach().cuda()  # Save validation mask
+                            best_test_mask = test_mask.clone().detach().cuda()  # Save test mask
                             print("Val Loss {:.4f}, Val Accuracy {:.4f}".format(val_loss, val_accu))
 
-            validation_accu.append(best_val_accu.item())
+            validation_accu.append(best_val_accu)
+            model1.eval()
+            
+            # with torch.no_grad():
+            #     print("Test Loss {:.4f}, test Accuracy {:.4f}".format(test_loss_, test_accu_))
+            #     test_accu.append(test_accu_.item())
 
-            # Save reconstructed graph
-            base_folder = "saved_reconstructed_dataset"
-            dataset_folder = os.path.join(base_folder, args.dataset)
-            os.makedirs(dataset_folder, exist_ok=True)
+            # Calculate reconstruction metrics for this trial
+            # idx_attack = np.array(random.sample(range(Adj.shape[0]), int(Adj.shape[0] * 0.1)))
+            # auroc, avg_prec = self.reconstruction_metric(original_adj, Adj.cpu().detach().numpy(), idx_attack, args.dataset, trial, args.save_testset, args.run_all_testset, args.ntrials)
+            
+            if args.save_testset == 1:
+                # save testset
+                idx_attack = np.array(random.sample(range(Adj.shape[0]), int(Adj.shape[0] * 0.1)))
+                save_list(idx_attack, "./Dataset/testset/" + args.dataset + "/idx_attack_" + args.dataset + "_trial_" + str(trial) + "_.idx")
+            else:
+                # # load
 
-            file_path = os.path.join(dataset_folder, "graph_data.pt")
-            graph_data = {
-                "adjacency_matrix": best_Adj,
-                "node_features": features,
-                "node_labels": labels,
-                "train_mask": train_mask,
-                "val_mask": val_mask,
-                "test_mask": test_mask,
-            }
-            torch.save(graph_data, file_path)
-            print(f"Reconstructed graph saved at '{file_path}'")
+                # run 100 times
+                if args.run_all_testset == 1:
+                    idx_attack_all = []
+                    for k in range(args.ntrials):
+                        idx_attack = []
+                        idx_attack = read_list(idx_attack,
+                                               "./Dataset/testset/" + args.dataset + "/idx_attack_" + args.dataset + "_trial_" + str(
+                                                   k) + "_.idx")
+                        idx_attack = np.array(idx_attack)
+                        idx_attack_all.append(idx_attack)
+                else: #run normal 10 times
+                    idx_attack = []
+                    idx_attack = read_list(idx_attack,
+                                           "./Dataset/testset/" + args.dataset + "/idx_attack_" + args.dataset + "_trial_" + str(
+                                               trial) + "_.idx")
+                    idx_attack = np.array(idx_attack)
 
+            # Do reconstruction metric
+            if args.run_all_testset == 1:
+                auroc, avg_prec = self.reconstruction_metric(original_adj, Adj.cpu().detach().numpy(), idx_attack_all,
+                                                             args.dataset,
+                                                             trial, args.save_testset, args.run_all_testset,
+                                                             args.ntrials)
+            else:
+                auroc, avg_prec = self.reconstruction_metric(original_adj, Adj.cpu().detach().numpy(), idx_attack, args.dataset,
+                                                             trial, args.save_testset, args.run_all_testset,
+                                                             args.ntrials)
+
+            avg_auroc.append(auroc)
+            avg_avg_prec.append(avg_prec)
+
+            print(f"Trial {trial} completed. Best Validation Accuracy: {best_val_accu:.4f}")
+
+        # Calculate mean and std for AUC and Average Precision
+        reconstructed_auroc_mean = np.mean(avg_auroc)
+        reconstructed_auroc_std = np.std(avg_auroc)
+        reconstructed_avg_prec_mean = np.mean(avg_avg_prec)
+        reconstructed_avg_prec_std = np.std(avg_avg_prec)
+
+        print("===== Reconstructed Metrics =====")
+        print(f"Reconstructed AUROC Mean: {reconstructed_auroc_mean:.4f}")
+        print(f"Reconstructed AUROC Std: {reconstructed_auroc_std:.4f}")
+        print(f"Reconstructed Average Precision Mean: {reconstructed_avg_prec_mean:.4f}")
+        print(f"Reconstructed Average Precision Std: {reconstructed_avg_prec_std}")
+
+        if args.use_wandb:
+            wandb.log({
+                "reconstructed_auroc_mean": reconstructed_auroc_mean,
+                "reconstructed_auroc_std": reconstructed_auroc_std,
+                "reconstructed_avg_prec_mean": reconstructed_avg_prec_mean,
+                "reconstructed_avg_prec_std": reconstructed_avg_prec_std
+            })
+
+        print("Training completed.")
             
     def train_end_to_end(self, args):
         # all_devices = args.devices
@@ -1017,8 +1184,8 @@ class Experiment:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-epochs', type=int, default=200, help='Number of epochs to train.')
-    parser.add_argument('-epochs_adj', type=int, default=2000, help='Number of epochs to learn the adjacency.')
+    parser.add_argument('-epochs', type=int, default=100, help='Number of epochs to train.')
+    parser.add_argument('-epochs_adj', type=int, default=200, help='Number of epochs to learn the adjacency.')
     parser.add_argument('-lr', type=float, default=0.001, help='Initial learning rate.')
     parser.add_argument('-lr_adj', type=float, default=0.01, help='Initial learning rate.')
     parser.add_argument('-w_decay', type=float, default=0.0005, help='Weight decay (L2 loss on parameters).')
@@ -1044,7 +1211,7 @@ if __name__ == '__main__':
     #                                                   6, 7, 8, 9, 10])
     parser.add_argument('-k', type=int, default=20, help='k for initializing with knn')
     parser.add_argument('-ratio', type=int, default=20, help='ratio of ones to select for each mask')
-    parser.add_argument('-epoch_d', type=float, default=5,
+    parser.add_argument('-epoch_d', type=float, default=2,
                         help='epochs_adj / epoch_d of the epochs will be used for training only with DAE.')
     parser.add_argument('-lambda_', type=float, default=0.1, help='regularizing the loss')
     parser.add_argument('-nr', type=int, default=5, help='ratio of zeros to ones')
@@ -1058,10 +1225,12 @@ if __name__ == '__main__':
     parser.add_argument('-sparse', type=int, default=0)
     parser.add_argument('-noise', type=str, default="mask", choices=['mask', 'normal'])
     parser.add_argument('-loss', type=str, default="mse", choices=['mse', 'bce'])
+    parser.add_argument('--output_dir', type=str, required=False, help="Directory to save explanations")
+    parser.add_argument('--num_nodes', type=int, required=False, help="Number of nodes in the graph")
     
     # New arguments for explanation directories
-    parser.add_argument('--original_expl_dir', type=str, required=True, help="Path to the directory containing original explanations")
-    parser.add_argument('--private_expl_dir', type=str, required=True, help="Path to the directory containing private explanations")
+    parser.add_argument('--original_expl_dir', type=str,  help="Path to the directory containing original explanations")
+    # parser.add_argument('--private_expl_dir', type=str,  help="Path to the directory containing private explanations")
     parser.add_argument('-attack_type', type=str, default='gsef_concat', 
                         choices=['gsef_concat', 'gsef_mult', 'gsef', 'gse', 'explainsim', 'featuresim', 'slaps'])
     parser.add_argument('-explanation_method', type=str, default='grad',
@@ -1088,8 +1257,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_wandb', type=int, default=1, help='Whether to use wandb logging')
     parser.add_argument('--wandb_entity', type=str, default='your-entity', help='Wandb entity')
     parser.add_argument('--wandb_project', type=str, default='graph-stealing-attacks', help='Wandb project name')
-    # # Add argument for private dataset
-    # parser.add_argument('--private-dataset-dir', type=str, required=True, help="Path to the private dataset directory")
+
 
     args = parser.parse_args()
     
