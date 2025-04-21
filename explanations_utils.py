@@ -19,7 +19,14 @@ SYN1_PATH = "data/syn1.npz"
 SYN2_PATH = "data/syn2.npz"
 from read_credit import read_credit_dataset
 
-def load_dataset(data_set, working_directory=None):
+
+# import argparse
+
+# parser = argparse.ArgumentParser()
+# parser.add_argument("--attack_type", type=str, required=True, help="Type of attack")
+# args = parser.parse_args()
+
+def load_dataset(data_set, working_directory=None, args=None):
     if working_directory is None:
         working_directory = Path(".").resolve()
     if data_set == "Cora":
@@ -34,7 +41,11 @@ def load_dataset(data_set, working_directory=None):
         
     elif data_set == "CoraPrivate":
         # Path to the private dataset folder
-        private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")
+        if args is None:
+            private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
+        else:
+            private_dataset_dir = working_directory.joinpath(f"private_dataset/{args.attack_type}/private_dataset1") #It used to store the graph.pt according to the attack type such that many codes cab be run at same time
+        
         
         # Load the .pt file
         graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
@@ -75,8 +86,10 @@ def load_dataset(data_set, working_directory=None):
 
     elif data_set == "PubMedPrivate":
         # Path to the private dataset folder
-        private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")
-        
+        if args is None:
+            private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
+        else:
+            private_dataset_dir = working_directory.joinpath(f"private_dataset/{args.attack_type}/private_dataset1") #It used to store the graph.pt according to the attack type such that many codes cab be run at same time
         # Load the .pt file
         graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
         
@@ -122,7 +135,11 @@ def load_dataset(data_set, working_directory=None):
         
     elif data_set == "CiteSeerPrivate":
         # Path to the private dataset folder
-        private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")
+        if args is None:
+            private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
+        else:
+            private_dataset_dir = working_directory.joinpath(f"private_dataset/{args.attack_type}/private_dataset1") #It used to store the graph.pt according to the attack type such that many codes cab be run at same time
+        
         
         # Load the .pt file
         graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
@@ -282,34 +299,41 @@ def load_dataset(data_set, working_directory=None):
         # results_path = "cora_ml"
 
 
-    elif data_set=="Bitcoin_alpha":
-        g, labels, name = read_bitcoinalpha()
-        A = nx.adjacency_matrix(g).todense()
+    elif data_set=="bitcoin":
+        # Path to the dataset directory
+        dataset_dir = working_directory.joinpath("Dataset")
 
+        # Read the Bitcoin Alpha dataset
+        g, labels, name = read_bitcoinalpha('bitcoinalpha', dataset_dir=dataset_dir)
+
+        # Create adjacency matrix and PyG Data object
+        A = nx.adjacency_matrix(g).todense()
         data = from_networkx(g)
         data.x = data.x.to(torch.float32)
         data.edge_attr = data.RATING
+        data.y = torch.tensor(labels, dtype=torch.long)
 
-        data.y = np.array(labels)
-        data.y = torch.from_numpy(data.y)
+        # Create train and test masks
         num_nodes = A.shape[0]
         train_ratio = 0.8
         num_train = int(num_nodes * train_ratio)
         idx = [i for i in range(num_nodes)]
-
         np.random.shuffle(idx)
 
-        train_mask = np.full_like(data.y, False, dtype=bool)
+        train_mask = np.full(num_nodes, False, dtype=bool)
         train_mask[idx[:num_train]] = True
-        test_mask = np.full_like(data.y, False, dtype=bool)
+        test_mask = np.full(num_nodes, False, dtype=bool)
         test_mask[idx[num_train:]] = True
 
-        data.train_mask, data.test_mask = train_mask, test_mask
+        data.train_mask = torch.tensor(train_mask)
+        data.test_mask = torch.tensor(test_mask)
+
+        # Create a Dataset namedtuple
         from collections import namedtuple
         Dataset = namedtuple("Dataset", "num_node_features num_classes")
-        dataset = Dataset(data.x.shape[1], max(data.y).item() + 1)
+        dataset = Dataset(data.x.shape[1], torch.max(data.y).item() + 1)
 
-        results_path = "Bitcoin_alpha"
+        results_path = "bitcoinalpha"
 
 
     else:

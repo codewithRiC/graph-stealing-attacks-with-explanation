@@ -5,4 +5,8 @@ Dataset/
 Explanations/
 trail_private_dataset1/
 wandb/
-/saved_reconstructed_dataset
+saved_reconstructed_dataset/
+tmp_ds/private_dataset/private_dataset1/
+Dataset/testset/
+saved_models/
+tmp_ds/

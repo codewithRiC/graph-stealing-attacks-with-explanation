@@ -45,7 +45,7 @@ def arg_parse():
     parser.add_argument("--start",type=int, dest="start",help="start node")
     parser.add_argument("--end",type=int, dest="end",help="end node")
     parser.add_argument('--output_dir', type=str, required=False, help="Directory to save explanations")
-
+    parser.add_argument('--attack_type', type=str, required=False , help="Type of attack to use")
     parser.set_defaults(dataset="Cora",
                         explainer="Grad",
                         model="GCN")
@@ -55,24 +55,32 @@ def arg_parse():
 args = arg_parse()
 
 
+# #uncomment these when used for end2endexpl
+# # Ensure output directory exists
+# if args.output_dir:
+#     os.makedirs(args.output_dir, exist_ok=True)
 
-# Ensure output directory exists
-if args.output_dir:
-    os.makedirs(args.output_dir, exist_ok=True)
-
-# Example explanation generation logic
-print(f"Generating explanations for model {args.model} on dataset {args.dataset} using {args.explainer}")
-if args.save_exp:
-    print(f"Saving explanations to {args.output_dir}")
+# # Example explanation generation logic
+# print(f"Generating explanations for model {args.model} on dataset {args.dataset} using {args.explainer}")
+# if args.save_exp:
+#     print(f"Saving explanations to {args.output_dir}")
     
-    # Simulate explanation generation and saving
-    for node in range(args.start, args.end + 1):
-        feature_mask = torch.rand(500)  # change this according to the feature of the dataset
-        file_full_path = os.path.join(args.output_dir, f"feature_masks_node={node}.pt")
-        torch.save(feature_mask, file_full_path)
-        print(f"Feature mask for node {node} saved at {file_full_path}")
+#     if args.attack_type == "gsef_concat":
+#         # Simulate explanation generation and saving
+#         for node in range(args.start, args.end + 1):
+#             feature_mask = torch.rand(1000)  # change this according to the feature of the dataset
+#             file_full_path = os.path.join(args.output_dir, f"feature_masks_node={node}.pt")
+#             torch.save(feature_mask, file_full_path)
+#             print(f"Feature mask for node {node} saved at {file_full_path}")
+#     else:        
+#         # Simulate explanation generation and saving
+#         for node in range(args.start, args.end + 1):
+#             feature_mask = torch.rand(500)  # change this according to the feature of the dataset pubmed=500, cora=1433, citeseer=3703
+#             file_full_path = os.path.join(args.output_dir, f"feature_masks_node={node}.pt")
+#             torch.save(feature_mask, file_full_path)
+#             print(f"Feature mask for node {node} saved at {file_full_path}")    
 
-#working_directory = Path("./tmp_ds/private_dataset/private_dataset1").resolve()
+# working_directory = Path("./tmp_ds/private_dataset/private_dataset1").resolve()
 working_directory = Path("./tmp_ds").resolve()
 
 if args.explainer=="Grad":
@@ -82,7 +90,7 @@ else:
     
 data_set = args.dataset
 print(f"{data_set=} | {working_directory=}")
-dataset, data, results_path = load_dataset(data_set, working_directory=working_directory)
+dataset, data, results_path = load_dataset(data_set, working_directory=working_directory, args=args)
 data.to(device)
 print(f"{dataset=} | {results_path=}")
 
@@ -227,9 +235,9 @@ for node in range(num_nodes):
     file_name = "feature_masks_node=" + str(node) + file_ext
     file_full_path = file_path / file_name
     file_path_edge = exp_dir+"/edge_masks_node="+str(node) + file_ext
-    # if args.save_exp:
-    #     if not file_path.exists():
-    #         file_path.mkdir(parents=True, exist_ok=True)
-    #     torch.save(feature_mask, file_full_path)
-    #     print(f"SAVED to {file_full_path.absolute()}")
-        #torch.save(edge_mask, file_path_edge)
+    if args.save_exp:                                        #comment it when using end2endexpl
+        if not file_path.exists():
+            file_path.mkdir(parents=True, exist_ok=True)
+        torch.save(feature_mask, file_full_path)
+        print(f"SAVED to {file_full_path.absolute()}")
+

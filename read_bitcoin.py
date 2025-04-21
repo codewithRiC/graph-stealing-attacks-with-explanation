@@ -34,9 +34,12 @@ class GaussianFeatureGen(FeatureGen):
         nx.set_node_attributes(G, feat_dict)
 
 
-def read_bitcoinalpha(dataset, feature_generator=None):
+def read_bitcoinalpha(dataset_name, dataset_dir="Dataset", feature_generator=None):
+    # Construct the full path to the CSV file
+    dataset_path = os.path.join(dataset_dir, f"{dataset_name}.csv")
 
-    df = pd.read_csv(dataset)
+    # Read the CSV file
+    df = pd.read_csv(dataset_path)
 
     Graphtype = nx.DiGraph()
     G = nx.from_pandas_edgelist(df, source='SOURCE', target='TARGET', edge_attr='RATING', create_using=Graphtype)
@@ -95,7 +98,6 @@ def read_bitcoinalpha(dataset, feature_generator=None):
     print("Positive node: ", count1)
 
     if feature_generator is None:
-
         feat_dict = {}
         feature_length = 8
         for node in list(G.nodes):
@@ -140,5 +142,3 @@ def read_bitcoinalpha(dataset, feature_generator=None):
     G = G.to_undirected()
 
     return G, roles, name
-
-

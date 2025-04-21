@@ -1,6 +1,7 @@
 import warnings
 import torch
 import os
+from pathlib import Path
 import sys
 from collections import namedtuple
 
@@ -416,8 +417,12 @@ def load_cora_ml(dataset, use_exp=False, concat_feat_with_exp=False, exp_only_as
 def load_bitcoin(dataset, use_exp=False, concat_feat_with_exp=False, exp_only_as_feature=False, exp_type="grad", 
                  use_exp_with_loss = 0, get_fidelity = 0, use_defense = 0, get_intersection = 0, epsilon=0, 
                  num_exp_in_each_split=10, get_predicted_labels=0, path = None, released_model = None):
-    data_name = "bitcoin"
-    g, labels, name = read_bitcoinalpha(dataset)
+    # Path to the dataset directory
+    dataset_dir = Path("./tmp_ds/Dataset")
+
+    # Read the Bitcoin Alpha dataset
+    g, labels, name = read_bitcoinalpha('bitcoinalpha', dataset_dir=dataset_dir)
+
     A = nx.adjacency_matrix(g).todense()
 
     # print(nx.info(g))
@@ -468,7 +473,7 @@ def load_bitcoin(dataset, use_exp=False, concat_feat_with_exp=False, exp_only_as
             exp_folder = "Explanations/Bitcoin_Explanations/Zorro_hard_Bitcoin/feature_masks_node=" #gcn_2_layers_explanation_t_3_r_1
             print("xxxxxxxxxxxx This is zorro-hard xxxxxxxxxxxx")
         elif exp_type == "grad":
-            exp_folder = "Explanations/Bitcoin_Explanations/Grad_Bitcoin/feature_masks_node="
+            exp_folder = "./Saved_Explanations/Grad/GCN/bitcoin/feature_masks_node="
             print("xxxxxxxxxxxx This is grad xxxxxxxxxxxx")
         elif exp_type == "grad-untrained":
             exp_folder = "Explanations/Bitcoin_Explanations/Grad_untrained_Bitcoin/feature_masks_node="
@@ -477,7 +482,7 @@ def load_bitcoin(dataset, use_exp=False, concat_feat_with_exp=False, exp_only_as
             exp_folder = "Explanations/Bitcoin_Explanations/GNNExplainer_Bitcoin/feature_masks_node="
             print("xxxxxxxxxxxx This is GNNExplainer xxxxxxxxxxxx")
         elif exp_type == "graphlime":
-            exp_folder = "Explanations/Bitcoin_Explanations/GraphLime_Bitcoin_0.1/feature_masks_node="
+            exp_folder = "./Saved_Explanations/GraphLime/GCN/bitcoin/feature_masks_node="
             print("xxxxxxxxxxxx This is GraphLime xxxxxxxxxxxx")
         # elif exp_type == "graphlime01":  # graphlime with rho of 0.1
         #     exp_folder = "Bitcoin_Explanations/GraphLime_Bitcoin_0.1/feature_masks_node="
@@ -486,7 +491,7 @@ def load_bitcoin(dataset, use_exp=False, concat_feat_with_exp=False, exp_only_as
             exp_folder = "Explanations/Bitcoin_Explanations/GradInput_untrained_Bitcoin/feature_masks_node="
             print("xxxxxxxxxxxx This is gradinput untrained xxxxxxxxxxxx")
         else:  # for gradinput
-            exp_folder = "Explanations/Bitcoin_Explanations/GradInput_Bitcoin/feature_masks_node="
+            exp_folder = "./Saved_Explanations/GradInput/GCN/bitcoin/feature_masks_node="
             print("xxxxxxxxxxxx This is gradinput xxxxxxxxxxxx")
 
         all_feat_exp = []
@@ -512,9 +517,9 @@ def load_bitcoin(dataset, use_exp=False, concat_feat_with_exp=False, exp_only_as
                 feat_exp_i = feat_exp_i.cpu()
             else:
                 if device == "cuda":
-                    feat_exp_i = torch.load(exp_folder + str(i))  # load explanations
+                    feat_exp_i = torch.load(exp_folder + str(i) + ".pt")  # load explanations
                 else:
-                    feat_exp_i = torch.load(exp_folder + str(i), map_location=device)  # load explanations
+                    feat_exp_i = torch.load(exp_folder + str(i) + ".pt", map_location=device)  # load explanations
                 feat_exp_i = feat_exp_i.cpu()
 
             all_feat_exp.append(feat_exp_i)
@@ -995,7 +1000,7 @@ def load_data(args):
 
 
 
-        return load_bitcoin('./Dataset/bitcoinalpha.csv', use_exp=use_exp, concat_feat_with_exp=concat_feat_with_exp,
+        return load_bitcoin('bitcoinalpha', use_exp=use_exp, concat_feat_with_exp=concat_feat_with_exp,
                             exp_only_as_feature=exp_only_as_feature, exp_type=args.explanation_method, 
                             use_exp_with_loss = args.use_exp_as_reconstruction_loss, get_fidelity = args.get_fidelity, 
                             use_defense = args.use_defense, get_intersection=args.get_intersection, 

@@ -598,7 +598,7 @@ class Experiment:
                     os.makedirs(dataset_folder, exist_ok=True)
 
                     # Ensure the directory for graph_data.pt exists
-                    tmp_dir = "./tmp_ds/private_dataset/private_dataset1"
+                    tmp_dir = f"./tmp_ds/private_dataset/{args.attack_type}/private_dataset1"
                     os.makedirs(tmp_dir, exist_ok=True)
 
                     file_path = os.path.join(tmp_dir, "graph_data.pt")
@@ -613,16 +613,18 @@ class Experiment:
                     torch.save(graph_data, file_path)
                     print(f"Reconstructed graph saved at '{file_path}'")
 
-                    # Generate private explanations using the command
-                    private_expl_dir = os.path.join(dataset_folder, f"private_explanations_epoch_{epoch}")
+                    # # Generate private explanations using the command
+                    # private_expl_dir = os.path.join(dataset_folder, f"private_explanations_epoch_{epoch}")
+                    private_expl_dir = os.path.join(dataset_folder, f"private_explanations")
                     os.makedirs(private_expl_dir, exist_ok=True)
-
-                    command = f"python explanations.py --model GCN --dataset PubMedPrivate --explainer {args.explanation_method} --save_exp --output_dir {private_expl_dir} --start 0 --end {args.num_nodes - 1}"
+                    # PubMedPrivate, CoraPrivate, CoraMLPrivate, CiteSeerPrivate, BitcoinPrivate,
+                    command = f"python explanations.py --model GCN --dataset PubMedPrivate --explainer {args.explanation_method} --save_exp --output_dir {private_expl_dir} --start 0 --end {args.num_nodes - 1} --attack_type {args.attack_type} "
                     try:
-                        subprocess.run(command, shell=True, check=True)
+                        subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
                     except subprocess.CalledProcessError as e:
                         print(f"Command failed with return code {e.returncode}")
                         print(f"Command output: {e.output}")
+                        print(f"Command error: {e.stderr}")
                         raise
                     # Move the generated explanations to the epoch-specific directory
                     for node in range(args.num_nodes):
@@ -1184,8 +1186,8 @@ class Experiment:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-epochs', type=int, default=100, help='Number of epochs to train.')
-    parser.add_argument('-epochs_adj', type=int, default=200, help='Number of epochs to learn the adjacency.')
+    parser.add_argument('-epochs', type=int, default=200, help='Number of epochs to train.')
+    parser.add_argument('-epochs_adj', type=int, default=2000, help='Number of epochs to learn the adjacency.')
     parser.add_argument('-lr', type=float, default=0.001, help='Initial learning rate.')
     parser.add_argument('-lr_adj', type=float, default=0.01, help='Initial learning rate.')
     parser.add_argument('-w_decay', type=float, default=0.0005, help='Weight decay (L2 loss on parameters).')
