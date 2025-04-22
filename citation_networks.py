@@ -6,6 +6,7 @@ import numpy as np
 import scipy.sparse as sp
 import torch
 import networkx as nx
+import json
 
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
@@ -173,22 +174,44 @@ def load_citation_network(dataset_str, use_exp=False, concat_feat_with_exp=False
     data_name_cap = dataset_str.capitalize()
     names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
     objects = []
-    for i in range(len(names)):
-        try: 
-            with open("./Dataset/data_tf/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
-                if sys.version_info > (3, 0):
-                    objects.append(pkl.load(f, encoding='latin1'))
-                else:
-                    objects.append(pkl.load(f))
+    # for i in range(len(names)):                                  #TODO: Uncomment this while using for cora, coraprivate, pubmed , pubmedprivate, citeseer 
+    #     try: 
+    #         with open("./Dataset/data_tf/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
+    #             if sys.version_info > (3, 0):
+    #                 objects.append(pkl.load(f, encoding='latin1'))
+    #             else:
+    #                 objects.append(pkl.load(f))
+    #     except Exception as e:
+    #         print(f"Error loading file: ./Dataset/data_tf/ind.{dataset_str}.{names[i]}")
+    #         print(f"Exception: {e}")
+    #         raise                        
+
+    # Load the required files
+  
+    for i in range(len(names)):  # TODO: This written for bitcoinalpha only (under checking)
+        file_path = f"./Dataset/data_tf/ind.{dataset_str}.{names[i]}"
+        try:
+            with open(file_path, 'rb') as f:
+                if names[i] == "graph":  # Handle the graph file as JSON
+                    objects.append(json.load(f))
+                else:  # Handle other files as pickle
+                    if sys.version_info > (3, 0):
+                        objects.append(pkl.load(f, encoding='latin1'))
+                    else:
+                        objects.append(pkl.load(f))
+        except json.JSONDecodeError:
+            raise ValueError(f"File {file_path} is not a valid JSON file. Please check the file format.")
+        except pkl.UnpicklingError:
+            raise ValueError(f"File {file_path} is not a valid pickle file. Please check the file format.")
         except Exception as e:
-            print(f"Error loading file: ./Dataset/data_tf/ind.{dataset_str}.{names[i]}")
+            print(f"Error loading file: {file_path}")
             print(f"Exception: {e}")
-            raise                        
+            raise
 
     x, y, tx, ty, allx, ally, graph = tuple(objects)
     test_idx_reorder = parse_index_file("./Dataset/data_tf/ind.{}.test.index".format(dataset_str))
     test_idx_range = np.sort(test_idx_reorder)
-    # if dataset_str == 'citeseer':           # Uncomment it when the original auxiliary info is being used
+    # if dataset_str == 'citeseer':           #TODO: Uncomment it when the original auxiliary info is being used
     #     # Fix citeseer dataset (there are some isolated nodes in the graph)
     #     # Find isolated nodes, add them as zero-vecs into the right position
     #     test_idx_range_full = range(min(test_idx_reorder), max(test_idx_reorder) + 1)

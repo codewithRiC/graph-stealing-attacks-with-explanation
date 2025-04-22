@@ -474,7 +474,7 @@ class Experiment:
 
         return auroc, avg_prec
 
-    def train_end_to_end_expl(self, args):
+    def train_end_to_end_expl(self, args):     #TODO: Added new reconstruction attack using explanation
         device_gnn_dae = torch.device(device_id)  # cuda:1
         device_gnn_rec_dae = torch.device(device_id) #cuda:1
         # Load data
@@ -617,8 +617,8 @@ class Experiment:
                     # private_expl_dir = os.path.join(dataset_folder, f"private_explanations_epoch_{epoch}")
                     private_expl_dir = os.path.join(dataset_folder, f"private_explanations")
                     os.makedirs(private_expl_dir, exist_ok=True)
-                    # PubMedPrivate, CoraPrivate, CoraMLPrivate, CiteSeerPrivate, BitcoinPrivate,
-                    command = f"python explanations.py --model GCN --dataset PubMedPrivate --explainer {args.explanation_method} --save_exp --output_dir {private_expl_dir} --start 0 --end {args.num_nodes - 1} --attack_type {args.attack_type} "
+                    # PubMedPrivate, CoraPrivate, CoraMLPrivate, CiteSeerPrivate, bitcoinalpha
+                    command = f"python explanations.py --model GCN --dataset bitcoinalpha --explainer {args.explanation_method} --save_exp --output_dir {private_expl_dir} --start 0 --end {args.num_nodes - 1} --attack_type {args.attack_type} "
                     try:
                         subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
                     except subprocess.CalledProcessError as e:
@@ -1196,10 +1196,10 @@ if __name__ == '__main__':
     parser.add_argument('-hidden_adj', type=int, default=512, help='Number of hidden units.')
     parser.add_argument('-dropout1', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
     parser.add_argument('-dropout2', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
-    parser.add_argument('-dropout_adj1', type=float, default=0.25, help='Dropout rate (1 - keep probability).')
-    parser.add_argument('-dropout_adj2', type=float, default=0.25, help='Dropout rate (1 - keep probability).')
+    parser.add_argument('-dropout_adj1', type=float, default=0.25, help='Dropout rate (1 - keep probability).')   # TODO: i have modified the dropout rate to 0.5 from 0.25
+    parser.add_argument('-dropout_adj2', type=float, default=0.25, help='Dropout rate (1 - keep probability).')   # TODO: i have modified the dropout rate to 0.5 from 0.25
     parser.add_argument('-dataset', type=str, default='cora', help='See choices',
-                        choices=['cora', 'cora_ml', 'bitcoin', 'credit', 'citeseer', 'pubmed','coraprivate','pubmedprivate','citeseerprivate'])
+                        choices=['cora', 'cora_ml', 'bitcoin', 'bitcoinalpha', 'credit', 'citeseer', 'pubmed','coraprivate','pubmedprivate','citeseerprivate'])
     parser.add_argument('-nlayers', type=int, default=2, help='#layers')
     parser.add_argument('-nlayers_adj', type=int, default=2, help='#layers')
     parser.add_argument('-patience', type=int, default=10, help='Patience for early stopping')
@@ -1213,7 +1213,7 @@ if __name__ == '__main__':
     #                                                   6, 7, 8, 9, 10])
     parser.add_argument('-k', type=int, default=20, help='k for initializing with knn')
     parser.add_argument('-ratio', type=int, default=20, help='ratio of ones to select for each mask')
-    parser.add_argument('-epoch_d', type=float, default=2,
+    parser.add_argument('-epoch_d', type=float, default=5,
                         help='epochs_adj / epoch_d of the epochs will be used for training only with DAE.')
     parser.add_argument('-lambda_', type=float, default=0.1, help='regularizing the loss')
     parser.add_argument('-nr', type=int, default=5, help='ratio of zeros to ones')

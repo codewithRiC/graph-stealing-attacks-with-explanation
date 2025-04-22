@@ -156,7 +156,7 @@ total time 501.8652458667755127
 
 ## Code args
 Parameters for running the code are enclosed in {}. The take the following values:
-- dataset-name ==> ['Cora', 'Cora_ml', 'Bitcoin', 'Citeseer', 'credit', 'Pubmed', 'CoraPrivate','PubMedPrivate','CiteSeerPrivate']
+- dataset-name ==> ['Cora', 'Cora_ml', 'Bitcoin', 'Citeseer', 'credit', 'Pubmed', 'CoraPrivate','PubMedPrivate','CiteSeerPrivate','bitcoinalpha']
 - explainer ==> ['grad', 'gradinput', 'zorro-soft', 'zorro-hard', 'graphlime', 'gnn-explainer']
 - eps ==> [0.0001, 0.001, 0.01, 0.1, 0.2, 0.4, 0.6, 0.8, 1]
 

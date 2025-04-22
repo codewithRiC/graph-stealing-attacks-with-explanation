@@ -39,7 +39,7 @@ def load_dataset(data_set, working_directory=None, args=None):
     #     data = dataset[0]
     #     results_path = "coraprivate"    
         
-    elif data_set == "CoraPrivate":
+    elif data_set == "CoraPrivate":   #TODO: Added the CoraPrivate
         # Path to the private dataset folder
         if args is None:
             private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
@@ -84,7 +84,7 @@ def load_dataset(data_set, working_directory=None, args=None):
         
         results_path = "coraprivate"
 
-    elif data_set == "PubMedPrivate":
+    elif data_set == "PubMedPrivate":    #TODO: Added the PubMedPrivate
         # Path to the private dataset folder
         if args is None:
             private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
@@ -127,13 +127,58 @@ def load_dataset(data_set, working_directory=None, args=None):
         
         results_path = "pubmedprivate"    
         
+    elif data_set == "bitcoinalpha":    #TODO: Added the bitcoialpha
+        # Path to the private dataset folder
+        if args is None:
+            private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
+        else:
+            private_dataset_dir = working_directory.joinpath(f"private_dataset/{args.attack_type}/private_dataset1") #It used to store the graph.pt according to the attack type such that many codes cab be run at same time
+        # Load the .pt file
+        # private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
+        graph_data = torch.load(os.path.join(private_dataset_dir, "graph_data.pt"))
+        
+        # Extract node features, labels, and masks
+        node_features = graph_data["node_features"]
+        node_labels = graph_data["node_labels"]
+        train_mask = graph_data["train_mask"].squeeze()
+        val_mask = graph_data["val_mask"].squeeze()
+        test_mask = graph_data["test_mask"].squeeze()
+        
+        # Ensure node_labels is a 1D tensor
+        if node_labels.dim() > 1:
+            node_labels = node_labels.argmax(dim=1)  # Convert one-hot to class indices
+          
+        # Create a dummy edge_index if not provided
+        num_nodes = node_features.size(0)
+        edge_index = torch.empty((2, 0), dtype=torch.long)  # Empty edge_index
+           
+        # Create a PyG Data object
+        data = Data(
+            x=node_features,
+            edge_index=edge_index,  
+            y=node_labels,
+            train_mask=train_mask,
+            val_mask=val_mask,
+            test_mask=test_mask
+        )
+      
+        
+        # Create a Dataset namedtuple
+        from collections import namedtuple
+        Dataset = namedtuple("Dataset", "num_node_features num_classes")
+        dataset = Dataset(data.x.shape[1], torch.max(data.y).item() + 1)
+     
+        
+        results_path = "bitcoinalpha"    
+            
+        
         
     elif data_set == "CiteSeer":
         dataset = Planetoid(root=working_directory.joinpath('tmp/CiteSeer'), name='CiteSeer')
         data = dataset[0]
         results_path = "citeseer"
         
-    elif data_set == "CiteSeerPrivate":
+    elif data_set == "CiteSeerPrivate":    #TODO: Added the CiteSeerPrivate
         # Path to the private dataset folder
         if args is None:
             private_dataset_dir = working_directory.joinpath("private_dataset/private_dataset1")  #used for obatining the original dataset on the basis of Meghas paper
@@ -299,7 +344,7 @@ def load_dataset(data_set, working_directory=None, args=None):
         # results_path = "cora_ml"
 
 
-    elif data_set=="bitcoin":
+    elif data_set=="bitcoin":   #TODO: Modified this bitcoin, but currently this is not in use
         # Path to the dataset directory
         dataset_dir = working_directory.joinpath("Dataset")
 
